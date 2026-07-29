@@ -13,12 +13,12 @@ const CLIENTS = {
   batbout: {
     spreadsheetId: "10EsXW5HTPr2D_51roBCZyIFSibcBFLLHL8VBl44wUbk",
     label: "Batbout++",
-    password: "moez2620!",
+    password: "moez2026!",
   },
   lacrosta: {
     spreadsheetId: "1F1ayIWUhhu9tM1K2AggSiU2JhjEsmp8XC_Ldgw6GEVo",
     label: "La Crosta Trattoria",
-    password: "salah2620!",
+    password: "salah2026!",
   },
 };
 
@@ -453,7 +453,7 @@ function Dashboard({ client }) {
 
         {sel && (
           <>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <div className="grid grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
               <KPICard
                 label="Score Sonyk"
                 value={`${sel.score}%`}
@@ -478,6 +478,18 @@ function Dashboard({ client }) {
                 value={sel.negatif}
                 accent={ORANGE}
                 delta={hasPrevious && <Delta current={sel.negatif} previous={prev.negatif} invert />}
+              />
+              <KPICard
+                label="Étoile positive"
+                value={sel.etoile_positive}
+                accent={GREEN}
+                delta={hasPrevious && <Delta current={sel.etoile_positive} previous={prev.etoile_positive} />}
+              />
+              <KPICard
+                label="Ignorés"
+                value={sel.ignorer}
+                accent={GRAY}
+                delta={hasPrevious && <Delta current={sel.ignorer} previous={prev.ignorer} invert />}
               />
             </div>
 
