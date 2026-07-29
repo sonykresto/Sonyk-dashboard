@@ -6,34 +6,14 @@ import {
 } from "recharts";
 import { TrendingUp, TrendingDown, Minus, RefreshCw, AlertTriangle, MessageSquareWarning, Lock, Tag } from "lucide-react";
 
-// ---------------------------------------------------------------------------
-// CONFIG MULTI-CLIENTS — un lien + un mot de passe par restaurant
-// ---------------------------------------------------------------------------
-const CLIENTS = {
-  batbout: {
-    spreadsheetId: "10EsXW5HTPr2D_51roBCZyIFSibcBFLLHL8VBl44wUbk",
-    label: "Batbout++",
-    password: "moez2026!",
-  },
-  lacrosta: {
-    spreadsheetId: "1F1ayIWUhhu9tM1K2AggSiU2JhjEsmp8XC_Ldgw6GEVo",
-    label: "La Crosta Trattoria",
-    password: "salah2026!",
-  },
-};
-
 const GREEN = "#2ecc8a";
 const BLUE = "#2E6FFF";
 const ORANGE = "#f59e0b";
 const GRAY = "#9ca3af";
 const RED = "#ef4444";
 
-function gvizUrl(spreadsheetId, sheetName) {
-  return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
-}
-
 // ---------------------------------------------------------------------------
-// Parsing helpers
+// Parsing helpers (identiques à avant — seule la SOURCE des données change)
 // ---------------------------------------------------------------------------
 
 function parseVerticalSheet(csvText) {
@@ -71,9 +51,6 @@ function parseCommentaireSheet(csvText) {
   return data;
 }
 
-// Toujours interpréter les dates au format québécois JJ/MM/AAAA en priorité —
-// ne jamais laisser new Date() deviner (il suppose MM/JJ/AAAA par défaut,
-// ce qui inverse jour et mois silencieusement).
 function parseAnyDate(value) {
   if (!value) return null;
   const s = String(value).trim();
@@ -218,14 +195,35 @@ function KeywordRow({ k }) {
 }
 
 // ---------------------------------------------------------------------------
-// Password gate — mot de passe par restaurant, en mémoire pour la session
+// Password gate — appelle maintenant l'API sécurisée, ne connaît plus
+// ni le mot de passe correct ni l'ID du fichier Google Sheet
 // ---------------------------------------------------------------------------
-function PasswordGate({ onUnlock, restaurantLabel, correctPassword }) {
+function PasswordGate({ clientKey, onUnlock }) {
   const [value, setValue] = useState("");
-  const [error, setError] = useState(false);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const submit = () => {
-    if (value === correctPassword) { onUnlock(); } else { setError(true); }
+  const submit = async () => {
+    if (!value) return;
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch("/api/dashboard-data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client: clientKey, password: value }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setError(json.error || "Erreur inconnue");
+        setLoading(false);
+        return;
+      }
+      onUnlock(value, json);
+    } catch (e) {
+      setError("Impossible de contacter le serveur.");
+      setLoading(false);
+    }
   };
 
   return (
@@ -234,7 +232,7 @@ function PasswordGate({ onUnlock, restaurantLabel, correctPassword }) {
         <div className="flex items-center gap-2 mb-1">
           <span className="text-xl font-extrabold tracking-tight" style={{ color: BLUE }}>SONYK</span>
         </div>
-        <p className="text-sm text-gray-500 mb-6">Tableau de bord — {restaurantLabel}</p>
+        <p className="text-sm text-gray-500 mb-6">Tableau de bord réputation</p>
 
         <div className="flex items-center gap-2 mb-2">
           <Lock size={14} className="text-gray-400" />
@@ -243,7 +241,7 @@ function PasswordGate({ onUnlock, restaurantLabel, correctPassword }) {
         <input
           type="password"
           value={value}
-          onChange={(e) => { setValue(e.target.value); setError(false); }}
+          onChange={(e) => { setValue(e.target.value); setError(""); }}
           onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
           placeholder="••••••••"
           className={`w-full border rounded-lg px-3 py-2.5 text-sm mb-1 outline-none focus:ring-2 ${
@@ -251,16 +249,17 @@ function PasswordGate({ onUnlock, restaurantLabel, correctPassword }) {
           }`}
           autoFocus
         />
-        {error && <p className="text-xs text-red-500 mb-3">Mot de passe incorrect.</p>}
+        {error && <p className="text-xs text-red-500 mb-3">{error}</p>}
         {!error && <div className="mb-3" />}
 
         <button
           type="button"
           onClick={submit}
-          className="w-full text-white text-sm font-medium rounded-lg py-2.5 mt-2 cursor-pointer"
+          disabled={loading}
+          className="w-full text-white text-sm font-medium rounded-lg py-2.5 mt-2 cursor-pointer disabled:opacity-60"
           style={{ backgroundColor: BLUE }}
         >
-          Accéder au tableau de bord
+          {loading ? "Vérification…" : "Accéder au tableau de bord"}
         </button>
       </div>
     </div>
@@ -282,57 +281,60 @@ function InvalidClientScreen() {
 }
 
 // ---------------------------------------------------------------------------
-// Main dashboard (après déverrouillage)
+// Dashboard — reçoit maintenant ses données déjà récupérées par l'API,
+// et redemande à l'API (avec le mot de passe gardé en mémoire) toutes les 60s
 // ---------------------------------------------------------------------------
-function Dashboard({ client }) {
-  const [status, setStatus] = useState("loading");
+function Dashboard({ clientKey, password, initialData }) {
+  const [status, setStatus] = useState("ok");
   const [errorMsg, setErrorMsg] = useState("");
+  const [restaurantLabel, setRestaurantLabel] = useState(initialData.label);
   const [history, setHistory] = useState([]);
   const [commentRows, setCommentRows] = useState([]);
   const [selectedIdx, setSelectedIdx] = useState(0);
-  const [lastFetched, setLastFetched] = useState(null);
+  const [lastFetched, setLastFetched] = useState(new Date());
+
+  const applyData = useCallback((json) => {
+    const curObj = parseVerticalSheet(json.moisCourant);
+    const histRows = parseHistoriqueSheet(json.historique);
+    const rawComments = parseCommentaireSheet(json.commentaire);
+
+    const curEntry = buildMonthEntry(curObj.mois_cible, curObj);
+    const histEntries = histRows.map((r) => buildMonthEntry(r.mois, r));
+    const combined = [...histEntries, curEntry];
+
+    setRestaurantLabel(json.label);
+    setHistory(combined);
+    setCommentRows(rawComments);
+    setSelectedIdx(combined.length - 1);
+    setLastFetched(new Date());
+  }, []);
 
   const load = useCallback(async () => {
     setStatus((s) => (s === "ok" ? "refreshing" : "loading"));
     setErrorMsg("");
     try {
-      const [curRes, histRes, commentRes] = await Promise.all([
-        fetch(gvizUrl(client.spreadsheetId, "mois_courant")),
-        fetch(gvizUrl(client.spreadsheetId, "historique_mensuel")),
-        fetch(gvizUrl(client.spreadsheetId, "Commentaire")),
-      ]);
-      if (!curRes.ok || !histRes.ok || !commentRes.ok) {
-        throw new Error("Impossible de lire la feuille (vérifie le partage public).");
-      }
-
-      const curText = await curRes.text();
-      const histText = await histRes.text();
-      const commentText = await commentRes.text();
-
-      const curObj = parseVerticalSheet(curText);
-      const histRows = parseHistoriqueSheet(histText);
-      const rawComments = parseCommentaireSheet(commentText);
-
-      const curEntry = buildMonthEntry(curObj.mois_cible, curObj);
-      const histEntries = histRows.map((r) => buildMonthEntry(r.mois, r));
-      const combined = [...histEntries, curEntry];
-
-      setHistory(combined);
-      setCommentRows(rawComments);
-      setSelectedIdx(combined.length - 1);
-      setLastFetched(new Date());
+      const res = await fetch("/api/dashboard-data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client: clientKey, password }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Erreur inconnue");
+      applyData(json);
       setStatus("ok");
     } catch (e) {
       setErrorMsg(e.message || "Erreur inconnue");
       setStatus("error");
     }
-  }, [client]);
+  }, [clientKey, password, applyData]);
 
+  // Appliquer les données déjà reçues au déverrouillage, puis rafraîchir périodiquement
   useEffect(() => {
-    load();
+    applyData(initialData);
     const interval = setInterval(load, 60000);
     return () => clearInterval(interval);
-  }, [load]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const series = history;
   const sel = series[selectedIdx];
@@ -349,7 +351,6 @@ function Dashboard({ client }) {
     ].filter((d) => d.value > 0);
   }, [sel]);
 
-  // Avis négatifs du mois affiché, avec leur resume_client déjà écrit par Claude
   const negativeForMonth = useMemo(() => {
     if (!sel || sel.year === null) return [];
     return commentRows
@@ -363,7 +364,6 @@ function Dashboard({ client }) {
       .slice(0, 8);
   }, [commentRows, sel]);
 
-  // Mots-clés fréquents du mois affiché, calculés en direct depuis Commentaire
   const keywordsForMonth = useMemo(() => {
     if (!sel || sel.year === null) return [];
     const counts = {};
@@ -399,7 +399,7 @@ function Dashboard({ client }) {
               <span className="text-sm text-gray-500">Tableau de bord réputation</span>
             </div>
             <div className="flex items-center gap-2 mt-1">
-              <h1 className="text-2xl font-bold text-gray-900">{client.label}</h1>
+              <h1 className="text-2xl font-bold text-gray-900">{restaurantLabel}</h1>
               <GoogleBadge />
             </div>
           </div>
@@ -431,17 +431,12 @@ function Dashboard({ client }) {
           </div>
         </div>
 
-        {status === "loading" && (
-          <div className="mb-6 text-sm text-gray-500 bg-white border border-gray-200 rounded-lg px-4 py-3">
-            Chargement des données depuis Google Sheets…
-          </div>
-        )}
         {status === "error" && (
           <div className="mb-6 flex items-start gap-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
             <AlertTriangle size={16} className="mt-0.5 shrink-0" />
             <div>
-              <p className="font-medium">Impossible de charger les données en direct.</p>
-              <p className="text-red-600 mt-0.5">{errorMsg} Vérifie que le fichier Google Sheet est bien partagé en "Lecteur" pour "Toute personne disposant du lien".</p>
+              <p className="font-medium">Impossible de rafraîchir les données.</p>
+              <p className="text-red-600 mt-0.5">{errorMsg}</p>
             </div>
           </div>
         )}
@@ -454,43 +449,18 @@ function Dashboard({ client }) {
         {sel && (
           <>
             <div className="grid grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
-              <KPICard
-                label="Score Sonyk"
-                value={`${sel.score}%`}
-                sub={sel.niveau}
-                accent={GREEN}
-                delta={hasPrevious && <Delta current={sel.score} previous={prev.score} suffix=" pts" />}
-              />
-              <KPICard
-                label="Total avis"
-                value={sel.total}
-                accent={BLUE}
-                delta={hasPrevious && <Delta current={sel.total} previous={prev.total} />}
-              />
-              <KPICard
-                label="Avis positifs"
-                value={sel.positif}
-                accent={GREEN}
-                delta={hasPrevious && <Delta current={sel.positif} previous={prev.positif} />}
-              />
-              <KPICard
-                label="Avis négatifs"
-                value={sel.negatif}
-                accent={ORANGE}
-                delta={hasPrevious && <Delta current={sel.negatif} previous={prev.negatif} invert />}
-              />
-              <KPICard
-                label="Étoile positive"
-                value={sel.etoile_positive}
-                accent={GREEN}
-                delta={hasPrevious && <Delta current={sel.etoile_positive} previous={prev.etoile_positive} />}
-              />
-              <KPICard
-                label="Ignorés"
-                value={sel.ignorer}
-                accent={GRAY}
-                delta={hasPrevious && <Delta current={sel.ignorer} previous={prev.ignorer} invert />}
-              />
+              <KPICard label="Score Sonyk" value={`${sel.score}%`} sub={sel.niveau} accent={GREEN}
+                delta={hasPrevious && <Delta current={sel.score} previous={prev.score} suffix=" pts" />} />
+              <KPICard label="Total avis" value={sel.total} accent={BLUE}
+                delta={hasPrevious && <Delta current={sel.total} previous={prev.total} />} />
+              <KPICard label="Avis positifs" value={sel.positif} accent={GREEN}
+                delta={hasPrevious && <Delta current={sel.positif} previous={prev.positif} />} />
+              <KPICard label="Avis négatifs" value={sel.negatif} accent={ORANGE}
+                delta={hasPrevious && <Delta current={sel.negatif} previous={prev.negatif} invert />} />
+              <KPICard label="Étoile positive" value={sel.etoile_positive} accent={GREEN}
+                delta={hasPrevious && <Delta current={sel.etoile_positive} previous={prev.etoile_positive} />} />
+              <KPICard label="Ignorés" value={sel.ignorer} accent={GRAY}
+                delta={hasPrevious && <Delta current={sel.ignorer} previous={prev.ignorer} invert />} />
             </div>
 
             {series.length > 1 && (
@@ -555,7 +525,6 @@ function Dashboard({ client }) {
               </div>
             </div>
 
-            {/* Mots-clés fréquents */}
             <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm mb-6">
               <div className="flex items-center gap-2 mb-1">
                 <Tag size={18} className="text-blue-500" />
@@ -563,9 +532,7 @@ function Dashboard({ client }) {
               </div>
               <p className="text-xs text-gray-400 mb-3">Détectés automatiquement dans les avis Google de ce mois.</p>
               {keywordsForMonth.length > 0 ? (
-                <div>
-                  {keywordsForMonth.map((k) => <KeywordRow key={k.nom} k={k} />)}
-                </div>
+                <div>{keywordsForMonth.map((k) => <KeywordRow key={k.nom} k={k} />)}</div>
               ) : (
                 <p className="text-sm text-gray-400">Aucun mot-clé détecté pour ce mois.</p>
               )}
@@ -573,9 +540,7 @@ function Dashboard({ client }) {
 
             {hasPrevious && (
               <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm mb-6">
-                <h2 className="font-semibold text-gray-800 mb-4">
-                  {sel.label} vs {prev.label}
-                </h2>
+                <h2 className="font-semibold text-gray-800 mb-4">{sel.label} vs {prev.label}</h2>
                 <div className="space-y-3">
                   {[
                     { label: "Score Sonyk", cur: sel.score, prv: prev.score, suffix: " pts" },
@@ -597,7 +562,6 @@ function Dashboard({ client }) {
               </div>
             )}
 
-            {/* Résumé des avis négatifs */}
             <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
               <div className="flex items-center gap-2 mb-4">
                 <MessageSquareWarning size={18} className="text-orange-500" />
@@ -607,15 +571,10 @@ function Dashboard({ client }) {
                 <div className="space-y-3">
                   {negativeForMonth.map((r, i) => (
                     <div key={i} className="flex items-start gap-3 py-2.5 border-b border-gray-100 last:border-0">
-                      <span
-                        className="mt-1 shrink-0 w-2 h-2 rounded-full"
-                        style={{ backgroundColor: INFO_RAPPORT_COLOR[r.info_rapport] || GRAY }}
-                      />
+                      <span className="mt-1 shrink-0 w-2 h-2 rounded-full" style={{ backgroundColor: INFO_RAPPORT_COLOR[r.info_rapport] || GRAY }} />
                       <div>
                         {r.info_rapport && INFO_RAPPORT_LABEL[r.info_rapport] && (
-                          <span className="text-xs font-medium text-gray-400 block mb-0.5">
-                            {INFO_RAPPORT_LABEL[r.info_rapport]}
-                          </span>
+                          <span className="text-xs font-medium text-gray-400 block mb-0.5">{INFO_RAPPORT_LABEL[r.info_rapport]}</span>
                         )}
                         <p className="text-sm text-gray-700">{r.resume_client}</p>
                       </div>
@@ -635,25 +594,32 @@ function Dashboard({ client }) {
 }
 
 // ---------------------------------------------------------------------------
-// Root — lit ?client=xxx dans l'URL, gère le mot de passe, puis affiche le dashboard
+// Root
 // ---------------------------------------------------------------------------
 export default function SonykDashboardLive() {
   const clientKey = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get("client");
   }, []);
-  const client = clientKey ? CLIENTS[clientKey] : null;
-  const [unlocked, setUnlocked] = useState(false);
 
-  if (!client) return <InvalidClientScreen />;
+  const [unlocked, setUnlocked] = useState(false);
+  const [password, setPassword] = useState("");
+  const [initialData, setInitialData] = useState(null);
+
+  if (!clientKey) return <InvalidClientScreen />;
+
   if (!unlocked) {
     return (
       <PasswordGate
-        onUnlock={() => setUnlocked(true)}
-        restaurantLabel={client.label}
-        correctPassword={client.password}
+        clientKey={clientKey}
+        onUnlock={(pwd, data) => {
+          setPassword(pwd);
+          setInitialData(data);
+          setUnlocked(true);
+        }}
       />
     );
   }
-  return <Dashboard client={client} />;
+
+  return <Dashboard clientKey={clientKey} password={password} initialData={initialData} />;
 }
