@@ -4,21 +4,25 @@ import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
-import { TrendingUp, TrendingDown, Minus, RefreshCw, AlertTriangle } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus, RefreshCw, AlertTriangle, MessageSquareWarning } from "lucide-react";
 
 // ---------------------------------------------------------------------------
-// CONFIG — à adapter par restaurant
+// CONFIG MULTI-CLIENTS — un lien par restaurant via ?client=xxx dans l'URL
 // ---------------------------------------------------------------------------
-const SPREADSHEET_ID = "10EsXW5HTPr2D_51roBCZyIFSibcBFLLHL8VBl44wUbk"; // Batbout++
-const RESTAURANT_LABEL = "Batbout++";
-
-const gvizUrl = (sheetName) =>
-  `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
+const CLIENTS = {
+  batbout: { spreadsheetId: "10EsXW5HTPr2D_51roBCZyIFSibcBFLLHL8VBl44wUbk", label: "Batbout++" },
+  lacrosta: { spreadsheetId: "1F1ayIWUhhu9tM1K2AggSiU2JhjEsmp8XC_Ldgw6GEVo", label: "La Crosta Trattoria" },
+};
 
 const GREEN = "#2ecc8a";
 const BLUE = "#2E6FFF";
 const ORANGE = "#f59e0b";
 const GRAY = "#9ca3af";
+const RED = "#ef4444";
+
+function gvizUrl(spreadsheetId, sheetName) {
+  return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
+}
 
 // ---------------------------------------------------------------------------
 // Parsing helpers
@@ -56,11 +60,34 @@ function parseHistoriqueSheet(csvText) {
     });
 }
 
+// Commentaire tab: raw row-per-review log, used for the negative reviews summary
+function parseCommentaireSheet(csvText) {
+  const { data } = Papa.parse(csvText, { header: true, skipEmptyLines: true });
+  return data;
+}
+
+function parseAnyDate(value) {
+  if (!value) return null;
+  const d1 = new Date(value);
+  if (!Number.isNaN(d1.getTime())) return d1;
+  const parts = String(value).split(/[\/\-]/);
+  if (parts.length === 3) {
+    let d, m, y;
+    if (parts[0].length === 4) { [y, m, d] = parts; } else { [d, m, y] = parts; }
+    const d2 = new Date(Number(y), Number(m) - 1, Number(d));
+    if (!Number.isNaN(d2.getTime())) return d2;
+  }
+  return null;
+}
+
 function buildMonthEntry(dateLabel, m) {
   const total =
     (m.total_positif || 0) + (m.total_negatif || 0) + (m.total_ignorer || 0) + (m.total_etoile_positive || 0);
+  const d = parseAnyDate(dateLabel);
   return {
     key: dateLabel,
+    year: d ? d.getFullYear() : null,
+    month: d ? d.getMonth() : null, // 0-indexed
     label: formatMonthLabel(dateLabel),
     total,
     positif: m.total_positif || 0,
@@ -77,17 +104,24 @@ function buildMonthEntry(dateLabel, m) {
 }
 
 function formatMonthLabel(dateStr) {
-  if (!dateStr) return "—";
-  const parts = String(dateStr).split(/[\/\-]/);
+  const d = parseAnyDate(dateStr);
   const MOIS_FR = ["Jan.", "Fév.", "Mars", "Avr.", "Mai", "Juin", "Juil.", "Août", "Sep.", "Oct.", "Nov.", "Déc."];
-  if (parts.length === 3) {
-    let d, mo, y;
-    if (parts[0].length === 4) { [y, mo, d] = parts; } else { [d, mo, y] = parts; }
-    const idx = parseInt(mo, 10) - 1;
-    if (idx >= 0 && idx < 12) return `${MOIS_FR[idx]} ${y}`;
-  }
-  return String(dateStr);
+  if (d) return `${MOIS_FR[d.getMonth()]} ${d.getFullYear()}`;
+  return String(dateStr || "—");
 }
+
+const INFO_RAPPORT_LABEL = {
+  insultant: "Insultant",
+  accusation_grave: "Accusation grave",
+  experience_grave: "Expérience grave",
+  experience_negative: "Expérience négative",
+};
+const INFO_RAPPORT_COLOR = {
+  insultant: RED,
+  accusation_grave: RED,
+  experience_grave: ORANGE,
+  experience_negative: ORANGE,
+};
 
 // ---------------------------------------------------------------------------
 // UI bits
@@ -135,38 +169,68 @@ const CustomTooltip = ({ active, payload, label }) => {
 };
 
 // ---------------------------------------------------------------------------
+// Invalid / missing client screen
+// ---------------------------------------------------------------------------
+function InvalidClientScreen() {
+  return (
+    <div className="min-h-full w-full bg-[#f7f8fa] flex items-center justify-center p-8">
+      <div className="max-w-md text-center">
+        <span className="text-xl font-extrabold tracking-tight" style={{ color: BLUE }}>SONYK</span>
+        <h1 className="text-xl font-bold text-gray-900 mt-4 mb-2">Lien invalide</h1>
+        <p className="text-gray-500 text-sm">
+          Ce lien ne correspond à aucun restaurant. Vérifie l'adresse ou contacte Sonyk pour obtenir ton lien.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
 export default function SonykDashboardLive() {
-  const [status, setStatus] = useState("loading"); // loading | ok | error
+  const clientKey = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("client");
+  }, []);
+  const client = clientKey ? CLIENTS[clientKey] : null;
+
+  const [status, setStatus] = useState("loading");
   const [errorMsg, setErrorMsg] = useState("");
   const [history, setHistory] = useState([]);
+  const [negativeReviews, setNegativeReviews] = useState([]);
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [lastFetched, setLastFetched] = useState(null);
 
   const load = useCallback(async () => {
+    if (!client) return;
     setStatus((s) => (s === "ok" ? "refreshing" : "loading"));
     setErrorMsg("");
     try {
-      const [curRes, histRes] = await Promise.all([
-        fetch(gvizUrl("mois_courant")),
-        fetch(gvizUrl("historique_mensuel")),
+      const [curRes, histRes, commentRes] = await Promise.all([
+        fetch(gvizUrl(client.spreadsheetId, "mois_courant")),
+        fetch(gvizUrl(client.spreadsheetId, "historique_mensuel")),
+        fetch(gvizUrl(client.spreadsheetId, "Commentaire")),
       ]);
-      if (!curRes.ok || !histRes.ok) throw new Error("Impossible de lire la feuille (vérifie le partage public).");
+      if (!curRes.ok || !histRes.ok || !commentRes.ok) {
+        throw new Error("Impossible de lire la feuille (vérifie le partage public).");
+      }
 
       const curText = await curRes.text();
       const histText = await histRes.text();
+      const commentText = await commentRes.text();
 
       const curObj = parseVerticalSheet(curText);
       const histRows = parseHistoriqueSheet(histText);
+      const commentRows = parseCommentaireSheet(commentText);
 
       const curEntry = buildMonthEntry(curObj.mois_cible, curObj);
       const histEntries = histRows.map((r) => buildMonthEntry(r.mois, r));
-
-      // combine, current month always last / selected by default
       const combined = [...histEntries, curEntry];
+
       setHistory(combined);
+      setNegativeReviews(commentRows);
       setSelectedIdx(combined.length - 1);
       setLastFetched(new Date());
       setStatus("ok");
@@ -174,13 +238,16 @@ export default function SonykDashboardLive() {
       setErrorMsg(e.message || "Erreur inconnue");
       setStatus("error");
     }
-  }, []);
+  }, [client]);
 
   useEffect(() => {
+    if (!client) return;
     load();
-    const interval = setInterval(load, 60000); // refresh toutes les 60s pour un effet "temps réel"
+    const interval = setInterval(load, 60000);
     return () => clearInterval(interval);
-  }, [load]);
+  }, [client, load]);
+
+  if (!client) return <InvalidClientScreen />;
 
   const series = history;
   const sel = series[selectedIdx];
@@ -197,6 +264,21 @@ export default function SonykDashboardLive() {
     ].filter((d) => d.value > 0);
   }, [sel]);
 
+  // Filter negative reviews to the currently selected month, most recent first
+  const negativeForMonth = useMemo(() => {
+    if (!sel || sel.year === null) return [];
+    return negativeReviews
+      .filter((r) => {
+        if ((r.type || "").trim().toLowerCase() !== "negatif") return false;
+        const d = parseAnyDate(r.mois_cible);
+        if (!d) return false;
+        return d.getFullYear() === sel.year && d.getMonth() === sel.month;
+      })
+      .filter((r) => r.resume_client && r.resume_client.trim())
+      .sort((a, b) => (parseAnyDate(b.mois_cible) || 0) - (parseAnyDate(a.mois_cible) || 0))
+      .slice(0, 8);
+  }, [negativeReviews, sel]);
+
   return (
     <div className="min-h-full w-full bg-[#f7f8fa] p-6 md:p-8" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
       <div className="max-w-5xl mx-auto">
@@ -209,7 +291,7 @@ export default function SonykDashboardLive() {
               <span className="text-gray-300">·</span>
               <span className="text-sm text-gray-500">Tableau de bord réputation</span>
             </div>
-            <h1 className="text-2xl font-bold text-gray-900 mt-1">{RESTAURANT_LABEL}</h1>
+            <h1 className="text-2xl font-bold text-gray-900 mt-1">{client.label}</h1>
           </div>
 
           <div className="flex items-center gap-3">
@@ -239,7 +321,6 @@ export default function SonykDashboardLive() {
           </div>
         </div>
 
-        {/* Status banner */}
         {status === "loading" && (
           <div className="mb-6 text-sm text-gray-500 bg-white border border-gray-200 rounded-lg px-4 py-3">
             Chargement des données depuis Google Sheets…
@@ -262,7 +343,6 @@ export default function SonykDashboardLive() {
 
         {sel && (
           <>
-            {/* KPI Cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
               <KPICard
                 label="Score Sonyk"
@@ -291,7 +371,6 @@ export default function SonykDashboardLive() {
               />
             </div>
 
-            {/* Score trend */}
             {series.length > 1 && (
               <div className="bg-white rounded-xl border border-gray-200 p-5 mb-6 shadow-sm">
                 <div className="flex items-center justify-between mb-4">
@@ -317,7 +396,6 @@ export default function SonykDashboardLive() {
             )}
 
             <div className="grid md:grid-cols-2 gap-6 mb-6">
-              {/* Répartition par mois */}
               {series.length > 1 && (
                 <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
                   <h2 className="font-semibold text-gray-800 mb-4">Répartition des avis par mois</h2>
@@ -337,7 +415,6 @@ export default function SonykDashboardLive() {
                 </div>
               )}
 
-              {/* Langue */}
               <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
                 <h2 className="font-semibold text-gray-800 mb-4">Langue des avis — {sel.label}</h2>
                 {langueData.length > 0 ? (
@@ -356,8 +433,7 @@ export default function SonykDashboardLive() {
               </div>
             </div>
 
-            {/* Comparaison mois vs mois */}
-            <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+            <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm mb-6">
               <h2 className="font-semibold text-gray-800 mb-4">
                 {sel.label} vs {hasPrevious ? prev.label : "—"}
               </h2>
@@ -382,8 +458,38 @@ export default function SonykDashboardLive() {
                 </div>
               ) : (
                 <p className="text-sm text-gray-400">
-                  Pas encore de mois précédent archivé pour comparer — reviens après le prochain passage du rapport mensuel.
+                  Pas encore de mois précédent archivé pour comparer.
                 </p>
+              )}
+            </div>
+
+            {/* Résumé des avis négatifs */}
+            <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+              <div className="flex items-center gap-2 mb-4">
+                <MessageSquareWarning size={18} className="text-orange-500" />
+                <h2 className="font-semibold text-gray-800">Avis négatifs — {sel.label}</h2>
+              </div>
+              {negativeForMonth.length > 0 ? (
+                <div className="space-y-3">
+                  {negativeForMonth.map((r, i) => (
+                    <div key={i} className="flex items-start gap-3 py-2.5 border-b border-gray-100 last:border-0">
+                      <span
+                        className="mt-1 shrink-0 w-2 h-2 rounded-full"
+                        style={{ backgroundColor: INFO_RAPPORT_COLOR[r.info_rapport] || GRAY }}
+                      />
+                      <div>
+                        {r.info_rapport && INFO_RAPPORT_LABEL[r.info_rapport] && (
+                          <span className="text-xs font-medium text-gray-400 block mb-0.5">
+                            {INFO_RAPPORT_LABEL[r.info_rapport]}
+                          </span>
+                        )}
+                        <p className="text-sm text-gray-700">{r.resume_client}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400">Aucun avis négatif détaillé pour ce mois.</p>
               )}
             </div>
           </>
