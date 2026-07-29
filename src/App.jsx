@@ -4,14 +4,22 @@ import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
-import { TrendingUp, TrendingDown, Minus, RefreshCw, AlertTriangle, MessageSquareWarning } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus, RefreshCw, AlertTriangle, MessageSquareWarning, Lock, Tag } from "lucide-react";
 
 // ---------------------------------------------------------------------------
-// CONFIG MULTI-CLIENTS — un lien par restaurant via ?client=xxx dans l'URL
+// CONFIG MULTI-CLIENTS — un lien + un mot de passe par restaurant
 // ---------------------------------------------------------------------------
 const CLIENTS = {
-  batbout: { spreadsheetId: "10EsXW5HTPr2D_51roBCZyIFSibcBFLLHL8VBl44wUbk", label: "Batbout++" },
-  lacrosta: { spreadsheetId: "1F1ayIWUhhu9tM1K2AggSiU2JhjEsmp8XC_Ldgw6GEVo", label: "La Crosta Trattoria" },
+  batbout: {
+    spreadsheetId: "10EsXW5HTPr2D_51roBCZyIFSibcBFLLHL8VBl44wUbk",
+    label: "Batbout++",
+    password: "moez2620!",
+  },
+  lacrosta: {
+    spreadsheetId: "1F1ayIWUhhu9tM1K2AggSiU2JhjEsmp8XC_Ldgw6GEVo",
+    label: "La Crosta Trattoria",
+    password: "salah2620!",
+  },
 };
 
 const GREEN = "#2ecc8a";
@@ -28,7 +36,6 @@ function gvizUrl(spreadsheetId, sheetName) {
 // Parsing helpers
 // ---------------------------------------------------------------------------
 
-// mois_courant / total_rapport are laid out VERTICALLY: col A = variable name, col B = value
 function parseVerticalSheet(csvText) {
   const { data } = Papa.parse(csvText, { skipEmptyLines: true });
   const obj = {};
@@ -43,7 +50,6 @@ function parseVerticalSheet(csvText) {
   return obj;
 }
 
-// historique_mensuel is laid out HORIZONTALLY: row 1 = headers, one row per month
 function parseHistoriqueSheet(csvText) {
   const { data } = Papa.parse(csvText, { header: true, skipEmptyLines: true });
   return data
@@ -60,24 +66,34 @@ function parseHistoriqueSheet(csvText) {
     });
 }
 
-// Commentaire tab: raw row-per-review log, used for the negative reviews summary
 function parseCommentaireSheet(csvText) {
   const { data } = Papa.parse(csvText, { header: true, skipEmptyLines: true });
   return data;
 }
 
+// Toujours interpréter les dates au format québécois JJ/MM/AAAA en priorité —
+// ne jamais laisser new Date() deviner (il suppose MM/JJ/AAAA par défaut,
+// ce qui inverse jour et mois silencieusement).
 function parseAnyDate(value) {
   if (!value) return null;
-  const d1 = new Date(value);
-  if (!Number.isNaN(d1.getTime())) return d1;
-  const parts = String(value).split(/[\/\-]/);
+  const s = String(value).trim();
+
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+    const d = new Date(s);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+
+  const parts = s.split(/[\/\-]/);
   if (parts.length === 3) {
     let d, m, y;
-    if (parts[0].length === 4) { [y, m, d] = parts; } else { [d, m, y] = parts; }
-    const d2 = new Date(Number(y), Number(m) - 1, Number(d));
-    if (!Number.isNaN(d2.getTime())) return d2;
+    if (parts[0].length === 4) { [y, m, d] = parts; }
+    else { [d, m, y] = parts; }
+    const parsed = new Date(Number(y), Number(m) - 1, Number(d));
+    if (!Number.isNaN(parsed.getTime())) return parsed;
   }
-  return null;
+
+  const fallback = new Date(s);
+  return Number.isNaN(fallback.getTime()) ? null : fallback;
 }
 
 function buildMonthEntry(dateLabel, m) {
@@ -87,7 +103,7 @@ function buildMonthEntry(dateLabel, m) {
   return {
     key: dateLabel,
     year: d ? d.getFullYear() : null,
-    month: d ? d.getMonth() : null, // 0-indexed
+    month: d ? d.getMonth() : null,
     label: formatMonthLabel(dateLabel),
     total,
     positif: m.total_positif || 0,
@@ -168,9 +184,89 @@ const CustomTooltip = ({ active, payload, label }) => {
   );
 };
 
+function GoogleBadge() {
+  return (
+    <span className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-600 text-xs font-medium px-2.5 py-1 rounded-full">
+      <svg width="12" height="12" viewBox="0 0 24 24">
+        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
+        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.99.66-2.26 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0 0 12 23z"/>
+        <path fill="#FBBC05" d="M5.84 14.09A6.6 6.6 0 0 1 5.5 12c0-.73.13-1.43.34-2.09V7.07H2.18A11 11 0 0 0 1 12c0 1.78.43 3.46 1.18 4.93l3.66-2.84z"/>
+        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+      </svg>
+      Google
+    </span>
+  );
+}
+
+function KeywordRow({ k }) {
+  const partage = k.positif === k.negatif;
+  const dot = partage ? GRAY : k.positif > k.negatif ? GREEN : ORANGE;
+  const label = partage
+    ? `${k.positif} positifs – ${k.negatif} négatifs`
+    : k.negatif === 0 ? "Que des retours positifs"
+    : k.positif === 0 ? "Que des retours négatifs"
+    : k.positif > k.negatif ? "Majoritairement positif" : "Majoritairement négatif";
+  return (
+    <div className="flex items-center justify-between py-2.5 border-b border-gray-100 last:border-0">
+      <div className="flex items-center gap-2.5">
+        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: dot }} />
+        <span className="font-medium text-gray-800 text-sm">{k.nom}</span>
+      </div>
+      <span className="text-xs text-gray-500">{label}</span>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
-// Invalid / missing client screen
+// Password gate — mot de passe par restaurant, en mémoire pour la session
 // ---------------------------------------------------------------------------
+function PasswordGate({ onUnlock, restaurantLabel, correctPassword }) {
+  const [value, setValue] = useState("");
+  const [error, setError] = useState(false);
+
+  const submit = () => {
+    if (value === correctPassword) { onUnlock(); } else { setError(true); }
+  };
+
+  return (
+    <div className="min-h-full w-full bg-[#f7f8fa] flex items-center justify-center p-6" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
+      <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-8 w-full max-w-sm">
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-xl font-extrabold tracking-tight" style={{ color: BLUE }}>SONYK</span>
+        </div>
+        <p className="text-sm text-gray-500 mb-6">Tableau de bord — {restaurantLabel}</p>
+
+        <div className="flex items-center gap-2 mb-2">
+          <Lock size={14} className="text-gray-400" />
+          <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Mot de passe</label>
+        </div>
+        <input
+          type="password"
+          value={value}
+          onChange={(e) => { setValue(e.target.value); setError(false); }}
+          onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+          placeholder="••••••••"
+          className={`w-full border rounded-lg px-3 py-2.5 text-sm mb-1 outline-none focus:ring-2 ${
+            error ? "border-red-300 focus:ring-red-200" : "border-gray-200 focus:ring-blue-200"
+          }`}
+          autoFocus
+        />
+        {error && <p className="text-xs text-red-500 mb-3">Mot de passe incorrect.</p>}
+        {!error && <div className="mb-3" />}
+
+        <button
+          type="button"
+          onClick={submit}
+          className="w-full text-white text-sm font-medium rounded-lg py-2.5 mt-2 cursor-pointer"
+          style={{ backgroundColor: BLUE }}
+        >
+          Accéder au tableau de bord
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function InvalidClientScreen() {
   return (
     <div className="min-h-full w-full bg-[#f7f8fa] flex items-center justify-center p-8">
@@ -186,25 +282,17 @@ function InvalidClientScreen() {
 }
 
 // ---------------------------------------------------------------------------
-// Main component
+// Main dashboard (après déverrouillage)
 // ---------------------------------------------------------------------------
-
-export default function SonykDashboardLive() {
-  const clientKey = useMemo(() => {
-    const params = new URLSearchParams(window.location.search);
-    return params.get("client");
-  }, []);
-  const client = clientKey ? CLIENTS[clientKey] : null;
-
+function Dashboard({ client }) {
   const [status, setStatus] = useState("loading");
   const [errorMsg, setErrorMsg] = useState("");
   const [history, setHistory] = useState([]);
-  const [negativeReviews, setNegativeReviews] = useState([]);
+  const [commentRows, setCommentRows] = useState([]);
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [lastFetched, setLastFetched] = useState(null);
 
   const load = useCallback(async () => {
-    if (!client) return;
     setStatus((s) => (s === "ok" ? "refreshing" : "loading"));
     setErrorMsg("");
     try {
@@ -223,14 +311,14 @@ export default function SonykDashboardLive() {
 
       const curObj = parseVerticalSheet(curText);
       const histRows = parseHistoriqueSheet(histText);
-      const commentRows = parseCommentaireSheet(commentText);
+      const rawComments = parseCommentaireSheet(commentText);
 
       const curEntry = buildMonthEntry(curObj.mois_cible, curObj);
       const histEntries = histRows.map((r) => buildMonthEntry(r.mois, r));
       const combined = [...histEntries, curEntry];
 
       setHistory(combined);
-      setNegativeReviews(commentRows);
+      setCommentRows(rawComments);
       setSelectedIdx(combined.length - 1);
       setLastFetched(new Date());
       setStatus("ok");
@@ -241,13 +329,10 @@ export default function SonykDashboardLive() {
   }, [client]);
 
   useEffect(() => {
-    if (!client) return;
     load();
     const interval = setInterval(load, 60000);
     return () => clearInterval(interval);
-  }, [client, load]);
-
-  if (!client) return <InvalidClientScreen />;
+  }, [load]);
 
   const series = history;
   const sel = series[selectedIdx];
@@ -264,26 +349,48 @@ export default function SonykDashboardLive() {
     ].filter((d) => d.value > 0);
   }, [sel]);
 
-  // Filter negative reviews to the currently selected month, most recent first
+  // Avis négatifs du mois affiché, avec leur resume_client déjà écrit par Claude
   const negativeForMonth = useMemo(() => {
     if (!sel || sel.year === null) return [];
-    return negativeReviews
+    return commentRows
+      .filter((r) => (r.type || "").trim().toLowerCase() === "negatif")
       .filter((r) => {
-        if ((r.type || "").trim().toLowerCase() !== "negatif") return false;
         const d = parseAnyDate(r.mois_cible);
-        if (!d) return false;
-        return d.getFullYear() === sel.year && d.getMonth() === sel.month;
+        return d && d.getFullYear() === sel.year && d.getMonth() === sel.month;
       })
       .filter((r) => r.resume_client && r.resume_client.trim())
       .sort((a, b) => (parseAnyDate(b.mois_cible) || 0) - (parseAnyDate(a.mois_cible) || 0))
       .slice(0, 8);
-  }, [negativeReviews, sel]);
+  }, [commentRows, sel]);
+
+  // Mots-clés fréquents du mois affiché, calculés en direct depuis Commentaire
+  const keywordsForMonth = useMemo(() => {
+    if (!sel || sel.year === null) return [];
+    const counts = {};
+    for (const r of commentRows) {
+      const type = (r.type || "").trim().toLowerCase();
+      if (type !== "positif" && type !== "negatif") continue;
+      const d = parseAnyDate(r.mois_cible);
+      if (!d || d.getFullYear() !== sel.year || d.getMonth() !== sel.month) continue;
+      const rawKeywords = (r.mot_cle || "").trim();
+      if (!rawKeywords) continue;
+      for (let kw of rawKeywords.split(",")) {
+        kw = kw.trim();
+        if (!kw) continue;
+        const nomAffiche = kw.charAt(0).toUpperCase() + kw.slice(1);
+        if (!counts[nomAffiche]) counts[nomAffiche] = { nom: nomAffiche, positif: 0, negatif: 0 };
+        counts[nomAffiche][type] += 1;
+      }
+    }
+    return Object.values(counts)
+      .sort((a, b) => (b.positif + b.negatif) - (a.positif + a.negatif))
+      .slice(0, 5);
+  }, [commentRows, sel]);
 
   return (
     <div className="min-h-full w-full bg-[#f7f8fa] p-6 md:p-8" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
       <div className="max-w-5xl mx-auto">
 
-        {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
             <div className="flex items-center gap-2">
@@ -291,7 +398,10 @@ export default function SonykDashboardLive() {
               <span className="text-gray-300">·</span>
               <span className="text-sm text-gray-500">Tableau de bord réputation</span>
             </div>
-            <h1 className="text-2xl font-bold text-gray-900 mt-1">{client.label}</h1>
+            <div className="flex items-center gap-2 mt-1">
+              <h1 className="text-2xl font-bold text-gray-900">{client.label}</h1>
+              <GoogleBadge />
+            </div>
           </div>
 
           <div className="flex items-center gap-3">
@@ -378,7 +488,7 @@ export default function SonykDashboardLive() {
                   <span className="text-xs text-gray-400">{series.length} mois disponibles</span>
                 </div>
                 <ResponsiveContainer width="100%" height={220}>
-                  <AreaChart data={series} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                  <AreaChart data={series} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
                     <defs>
                       <linearGradient id="scoreFill" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor={GREEN} stopOpacity={0.35} />
@@ -387,7 +497,7 @@ export default function SonykDashboardLive() {
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#eef0f2" vertical={false} />
                     <XAxis dataKey="label" tick={{ fontSize: 12, fill: "#6b7280" }} axisLine={{ stroke: "#e5e7eb" }} tickLine={false} />
-                    <YAxis domain={[0, 100]} tick={{ fontSize: 12, fill: "#6b7280" }} axisLine={false} tickLine={false} width={36} />
+                    <YAxis domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} tick={{ fontSize: 12, fill: "#6b7280" }} axisLine={false} tickLine={false} width={40} allowDecimals={false} />
                     <Tooltip content={<CustomTooltip />} />
                     <Area type="monotone" dataKey="score" name="Score Sonyk" stroke={GREEN} strokeWidth={2.5} fill="url(#scoreFill)" dot={{ r: 3, fill: GREEN }} activeDot={{ r: 5 }} />
                   </AreaChart>
@@ -400,14 +510,14 @@ export default function SonykDashboardLive() {
                 <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
                   <h2 className="font-semibold text-gray-800 mb-4">Répartition des avis par mois</h2>
                   <ResponsiveContainer width="100%" height={220}>
-                    <BarChart data={series} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                    <BarChart data={series} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#eef0f2" vertical={false} />
                       <XAxis dataKey="label" tick={{ fontSize: 12, fill: "#6b7280" }} axisLine={{ stroke: "#e5e7eb" }} tickLine={false} />
-                      <YAxis tick={{ fontSize: 12, fill: "#6b7280" }} axisLine={false} tickLine={false} width={30} />
+                      <YAxis tick={{ fontSize: 12, fill: "#6b7280" }} axisLine={false} tickLine={false} width={32} allowDecimals={false} />
                       <Tooltip content={<CustomTooltip />} />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
                       <Bar dataKey="positif" name="Positif" stackId="a" fill={GREEN} />
-                      <Bar dataKey="etoile_positive" name="Sans commentaire" stackId="a" fill="#a7f3d0" />
+                      <Bar dataKey="etoile_positive" name="Avis étoile positive" stackId="a" fill="#a7f3d0" />
                       <Bar dataKey="negatif" name="Négatif" stackId="a" fill={ORANGE} />
                       <Bar dataKey="ignorer" name="Ignoré" stackId="a" fill="#d1d5db" radius={[3, 3, 0, 0]} />
                     </BarChart>
@@ -433,18 +543,34 @@ export default function SonykDashboardLive() {
               </div>
             </div>
 
+            {/* Mots-clés fréquents */}
             <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm mb-6">
-              <h2 className="font-semibold text-gray-800 mb-4">
-                {sel.label} vs {hasPrevious ? prev.label : "—"}
-              </h2>
-              {hasPrevious ? (
+              <div className="flex items-center gap-2 mb-1">
+                <Tag size={18} className="text-blue-500" />
+                <h2 className="font-semibold text-gray-800">Sujets les plus mentionnés — {sel.label}</h2>
+              </div>
+              <p className="text-xs text-gray-400 mb-3">Détectés automatiquement dans les avis Google de ce mois.</p>
+              {keywordsForMonth.length > 0 ? (
+                <div>
+                  {keywordsForMonth.map((k) => <KeywordRow key={k.nom} k={k} />)}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400">Aucun mot-clé détecté pour ce mois.</p>
+              )}
+            </div>
+
+            {hasPrevious && (
+              <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm mb-6">
+                <h2 className="font-semibold text-gray-800 mb-4">
+                  {sel.label} vs {prev.label}
+                </h2>
                 <div className="space-y-3">
                   {[
                     { label: "Score Sonyk", cur: sel.score, prv: prev.score, suffix: " pts" },
                     { label: "Total avis", cur: sel.total, prv: prev.total },
                     { label: "Avis positifs", cur: sel.positif, prv: prev.positif },
                     { label: "Avis négatifs", cur: sel.negatif, prv: prev.negatif, invert: true },
-                    { label: "Sans commentaire", cur: sel.etoile_positive, prv: prev.etoile_positive },
+                    { label: "Avis étoile positive", cur: sel.etoile_positive, prv: prev.etoile_positive },
                   ].map((row) => (
                     <div key={row.label} className="flex items-center justify-between text-sm">
                       <span className="text-gray-600">{row.label}</span>
@@ -456,12 +582,8 @@ export default function SonykDashboardLive() {
                     </div>
                   ))}
                 </div>
-              ) : (
-                <p className="text-sm text-gray-400">
-                  Pas encore de mois précédent archivé pour comparer.
-                </p>
-              )}
-            </div>
+              </div>
+            )}
 
             {/* Résumé des avis négatifs */}
             <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
@@ -498,4 +620,28 @@ export default function SonykDashboardLive() {
       </div>
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Root — lit ?client=xxx dans l'URL, gère le mot de passe, puis affiche le dashboard
+// ---------------------------------------------------------------------------
+export default function SonykDashboardLive() {
+  const clientKey = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("client");
+  }, []);
+  const client = clientKey ? CLIENTS[clientKey] : null;
+  const [unlocked, setUnlocked] = useState(false);
+
+  if (!client) return <InvalidClientScreen />;
+  if (!unlocked) {
+    return (
+      <PasswordGate
+        onUnlock={() => setUnlocked(true)}
+        restaurantLabel={client.label}
+        correctPassword={client.password}
+      />
+    );
+  }
+  return <Dashboard client={client} />;
 }
