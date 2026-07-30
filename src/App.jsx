@@ -6,6 +6,11 @@ import {
 } from "recharts";
 import { TrendingUp, TrendingDown, Minus, RefreshCw, AlertTriangle, MessageSquareWarning, Lock, Tag } from "lucide-react";
 
+const RESTAURANT_LABELS = {
+  batbout: "Batbout++",
+  lacrosta: "La Crosta Trattoria",
+};
+
 const GREEN = "#2ecc8a";
 const BLUE = "#2E6FFF";
 const ORANGE = "#f59e0b";
@@ -232,7 +237,9 @@ function PasswordGate({ clientKey, onUnlock }) {
         <div className="flex items-center gap-2 mb-1">
           <span className="text-xl font-extrabold tracking-tight" style={{ color: BLUE }}>SONYK</span>
         </div>
-        <p className="text-sm text-gray-500 mb-6">Tableau de bord réputation</p>
+        <p className="text-sm text-gray-500 mb-6">
+          {RESTAURANT_LABELS[clientKey] ? `Tableau de bord — ${RESTAURANT_LABELS[clientKey]}` : "Tableau de bord réputation"}
+        </p>
 
         <div className="flex items-center gap-2 mb-2">
           <Lock size={14} className="text-gray-400" />
@@ -388,7 +395,7 @@ function Dashboard({ clientKey, password, initialData }) {
   }, [commentRows, sel]);
 
   return (
-    <div className="min-h-full w-full bg-[#f7f8fa] p-6 md:p-8" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
+    <div className="min-h-full w-full bg-[#f7f8fa] p-6 md:p-8 overflow-x-hidden" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
       <div className="max-w-5xl mx-auto">
 
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
@@ -398,20 +405,20 @@ function Dashboard({ clientKey, password, initialData }) {
               <span className="text-gray-300">·</span>
               <span className="text-sm text-gray-500">Tableau de bord réputation</span>
             </div>
-            <div className="flex items-center gap-2 mt-1">
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
               <h1 className="text-2xl font-bold text-gray-900">{restaurantLabel}</h1>
               <GoogleBadge />
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             {series.length > 0 && (
-              <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg p-1">
+              <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg p-1 overflow-x-auto max-w-full">
                 {series.map((m, i) => (
                   <button
                     key={m.key + i}
                     onClick={() => setSelectedIdx(i)}
-                    className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                    className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap shrink-0 ${
                       i === selectedIdx ? "text-white" : "text-gray-500 hover:text-gray-800 hover:bg-gray-50"
                     }`}
                     style={i === selectedIdx ? { backgroundColor: BLUE } : {}}
@@ -602,17 +609,59 @@ export default function SonykDashboardLive() {
     return params.get("client");
   }, []);
 
+  const storageKey = clientKey ? `sonyk_auth_${clientKey}` : null;
+
   const [unlocked, setUnlocked] = useState(false);
   const [password, setPassword] = useState("");
   const [initialData, setInitialData] = useState(null);
+  const [checkingStoredSession, setCheckingStoredSession] = useState(true);
+
+  // Au chargement : si un mot de passe est déjà mémorisé sur cet appareil pour ce
+  // restaurant, on tente de se reconnecter automatiquement, sans redemander.
+  useEffect(() => {
+    if (!clientKey || !storageKey) { setCheckingStoredSession(false); return; }
+    const stored = localStorage.getItem(storageKey);
+    if (!stored) { setCheckingStoredSession(false); return; }
+
+    (async () => {
+      try {
+        const res = await fetch("/api/dashboard-data", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ client: clientKey, password: stored }),
+        });
+        const json = await res.json();
+        if (res.ok) {
+          setPassword(stored);
+          setInitialData(json);
+          setUnlocked(true);
+        } else {
+          localStorage.removeItem(storageKey); // mot de passe changé ou invalide
+        }
+      } catch {
+        // pas grave — on retombera simplement sur l'écran de connexion normal
+      } finally {
+        setCheckingStoredSession(false);
+      }
+    })();
+  }, [clientKey, storageKey]);
 
   if (!clientKey) return <InvalidClientScreen />;
+
+  if (checkingStoredSession) {
+    return (
+      <div className="min-h-full w-full bg-[#f7f8fa] flex items-center justify-center p-6">
+        <span className="text-sm text-gray-400">Chargement…</span>
+      </div>
+    );
+  }
 
   if (!unlocked) {
     return (
       <PasswordGate
         clientKey={clientKey}
         onUnlock={(pwd, data) => {
+          if (storageKey) localStorage.setItem(storageKey, pwd);
           setPassword(pwd);
           setInitialData(data);
           setUnlocked(true);
