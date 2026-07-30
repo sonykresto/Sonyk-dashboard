@@ -139,10 +139,28 @@ function Delta({ current, previous, suffix = "", invert = false }) {
   );
 }
 
-function KPICard({ label, value, sub, delta, accent }) {
+function KPICard({ label, value, sub, delta, accent, trendData, sparkId }) {
+  const showSparkline = trendData && trendData.length >= 2;
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-5 flex flex-col gap-1.5 shadow-sm">
-      <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">{label}</span>
+      <div className="flex items-start justify-between gap-2">
+        <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">{label}</span>
+        {showSparkline && (
+          <div className="w-14 h-7 shrink-0 -mt-1 -mr-1">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={trendData.map((v, i) => ({ i, v }))} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id={`spark-${sparkId}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={accent} stopOpacity={0.35} />
+                    <stop offset="100%" stopColor={accent} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <Area type="monotone" dataKey="v" stroke={accent} strokeWidth={2} fill={`url(#spark-${sparkId})`} dot={false} isAnimationActive={false} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
       <div className="flex items-end gap-2">
         <span className="text-3xl font-bold" style={{ color: accent }}>{value}</span>
         {sub && <span className="text-sm text-gray-400 pb-1">{sub}</span>}
@@ -457,16 +475,22 @@ function Dashboard({ clientKey, password, initialData }) {
           <>
             <div className="grid grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
               <KPICard label="Score Sonyk" value={`${sel.score}%`} sub={sel.niveau} accent={GREEN}
+                trendData={series.slice(0, selectedIdx + 1).map((m) => m.score)} sparkId="score"
                 delta={hasPrevious && <Delta current={sel.score} previous={prev.score} suffix=" pts" />} />
               <KPICard label="Total avis" value={sel.total} accent={BLUE}
+                trendData={series.slice(0, selectedIdx + 1).map((m) => m.total)} sparkId="total"
                 delta={hasPrevious && <Delta current={sel.total} previous={prev.total} />} />
               <KPICard label="Avis positifs" value={sel.positif} accent={GREEN}
+                trendData={series.slice(0, selectedIdx + 1).map((m) => m.positif)} sparkId="positif"
                 delta={hasPrevious && <Delta current={sel.positif} previous={prev.positif} />} />
               <KPICard label="Avis négatifs" value={sel.negatif} accent={ORANGE}
+                trendData={series.slice(0, selectedIdx + 1).map((m) => m.negatif)} sparkId="negatif"
                 delta={hasPrevious && <Delta current={sel.negatif} previous={prev.negatif} invert />} />
               <KPICard label="Étoile positive" value={sel.etoile_positive} accent={GREEN}
+                trendData={series.slice(0, selectedIdx + 1).map((m) => m.etoile_positive)} sparkId="etoile"
                 delta={hasPrevious && <Delta current={sel.etoile_positive} previous={prev.etoile_positive} />} />
               <KPICard label="Ignorés" value={sel.ignorer} accent={GRAY}
+                trendData={series.slice(0, selectedIdx + 1).map((m) => m.ignorer)} sparkId="ignore"
                 delta={hasPrevious && <Delta current={sel.ignorer} previous={prev.ignorer} invert />} />
             </div>
 
