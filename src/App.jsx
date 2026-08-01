@@ -160,7 +160,16 @@ function Delta({ current, previous, suffix = "", invert = false }) {
   );
 }
 
-function KPICard({ label, value, sub, delta, accent, trendData, sparkId }) {
+function TrendArrow({ current, previous, invert = false }) {
+  const diff = current - previous;
+  const good = invert ? diff < 0 : diff > 0;
+  const flat = diff === 0;
+  const Icon = flat ? Minus : good ? TrendingUp : TrendingDown;
+  const color = flat ? "text-gray-400" : good ? "text-[#2ecc8a]" : "text-red-500";
+  return <Icon size={16} strokeWidth={2.5} className={color} />;
+}
+
+function KPICard({ label, value, sub, accent, trendData, sparkId, trendIcon }) {
   const showSparkline = trendData && trendData.length >= 2;
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-5 flex flex-col gap-1.5 shadow-sm">
@@ -185,6 +194,7 @@ function KPICard({ label, value, sub, delta, accent, trendData, sparkId }) {
       <div className="flex items-end gap-2">
         <span className="text-3xl font-bold" style={{ color: accent }}>{value}</span>
         {sub && <span className="text-sm text-gray-400 pb-1">{sub}</span>}
+        {trendIcon && <span className="pb-1.5">{trendIcon}</span>}
       </div>
     </div>
   );
@@ -510,22 +520,22 @@ function Dashboard({ clientKey, password, initialData }) {
             <div className="grid grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
               <KPICard label="Score Sonyk" value={`${sel.score}%`} sub={sel.niveau} accent={GREEN}
                 trendData={series.slice(0, selectedIdx + 1).map((m) => m.score)} sparkId="score"
-                delta={hasPrevious && <Delta current={sel.score} previous={prev.score} suffix=" pts" />} />
+                trendIcon={hasPrevious && <TrendArrow current={sel.score} previous={prev.score} />} />
               <KPICard label="Total avis" value={sel.total} accent={BLUE}
                 trendData={series.slice(0, selectedIdx + 1).map((m) => m.total)} sparkId="total"
-                delta={hasPrevious && <Delta current={sel.total} previous={prev.total} />} />
+                trendIcon={hasPrevious && <TrendArrow current={sel.total} previous={prev.total} />} />
               <KPICard label="Avis positifs" value={sel.positif} accent={GREEN}
                 trendData={series.slice(0, selectedIdx + 1).map((m) => m.positif)} sparkId="positif"
-                delta={hasPrevious && <Delta current={sel.positif} previous={prev.positif} />} />
+                trendIcon={hasPrevious && <TrendArrow current={sel.positif} previous={prev.positif} />} />
               <KPICard label="Avis négatifs" value={sel.negatif} accent={ORANGE}
                 trendData={series.slice(0, selectedIdx + 1).map((m) => m.negatif)} sparkId="negatif"
-                delta={hasPrevious && <Delta current={sel.negatif} previous={prev.negatif} invert />} />
+                trendIcon={hasPrevious && <TrendArrow current={sel.negatif} previous={prev.negatif} invert />} />
               <KPICard label="Étoile positive" value={sel.etoile_positive} accent={GREEN}
                 trendData={series.slice(0, selectedIdx + 1).map((m) => m.etoile_positive)} sparkId="etoile"
-                delta={hasPrevious && <Delta current={sel.etoile_positive} previous={prev.etoile_positive} />} />
+                trendIcon={hasPrevious && <TrendArrow current={sel.etoile_positive} previous={prev.etoile_positive} />} />
               <KPICard label="Ignorés" value={sel.ignorer} accent={GRAY}
                 trendData={series.slice(0, selectedIdx + 1).map((m) => m.ignorer)} sparkId="ignore"
-                delta={hasPrevious && <Delta current={sel.ignorer} previous={prev.ignorer} invert />} />
+                trendIcon={hasPrevious && <TrendArrow current={sel.ignorer} previous={prev.ignorer} invert />} />
             </div>
 
             {series.length > 1 && (
