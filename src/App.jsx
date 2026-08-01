@@ -108,6 +108,27 @@ function formatMonthLabel(dateStr) {
   return String(dateStr || "—");
 }
 
+function keywordCountsForMonth(commentRows, year, month) {
+  const counts = {};
+  if (year === null || year === undefined || month === null || month === undefined) return counts;
+  for (const r of commentRows) {
+    const type = (r.type || "").trim().toLowerCase();
+    if (type !== "positif" && type !== "negatif") continue;
+    const d = parseAnyDate(r.mois_cible);
+    if (!d || d.getFullYear() !== year || d.getMonth() !== month) continue;
+    const rawKeywords = (r.mot_cle || "").trim();
+    if (!rawKeywords) continue;
+    for (let kw of rawKeywords.split(",")) {
+      kw = kw.trim();
+      if (!kw) continue;
+      const nomAffiche = kw.charAt(0).toUpperCase() + kw.slice(1);
+      if (!counts[nomAffiche]) counts[nomAffiche] = { nom: nomAffiche, positif: 0, negatif: 0 };
+      counts[nomAffiche][type] += 1;
+    }
+  }
+  return counts;
+}
+
 const INFO_RAPPORT_LABEL = {
   insultant: "Insultant",
   accusation_grave: "Accusation grave",
@@ -388,28 +409,42 @@ function Dashboard({ clientKey, password, initialData }) {
       .slice(0, 8);
   }, [commentRows, sel]);
 
+  const keywordCountsSel = useMemo(
+    () => (sel ? keywordCountsForMonth(commentRows, sel.year, sel.month) : {}),
+    [commentRows, sel]
+  );
+  const keywordCountsPrev = useMemo(
+    () => (hasPrevious ? keywordCountsForMonth(commentRows, prev.year, prev.month) : {}),
+    [commentRows, prev, hasPrevious]
+  );
+
   const keywordsForMonth = useMemo(() => {
-    if (!sel || sel.year === null) return [];
-    const counts = {};
-    for (const r of commentRows) {
-      const type = (r.type || "").trim().toLowerCase();
-      if (type !== "positif" && type !== "negatif") continue;
-      const d = parseAnyDate(r.mois_cible);
-      if (!d || d.getFullYear() !== sel.year || d.getMonth() !== sel.month) continue;
-      const rawKeywords = (r.mot_cle || "").trim();
-      if (!rawKeywords) continue;
-      for (let kw of rawKeywords.split(",")) {
-        kw = kw.trim();
-        if (!kw) continue;
-        const nomAffiche = kw.charAt(0).toUpperCase() + kw.slice(1);
-        if (!counts[nomAffiche]) counts[nomAffiche] = { nom: nomAffiche, positif: 0, negatif: 0 };
-        counts[nomAffiche][type] += 1;
-      }
-    }
-    return Object.values(counts)
+    return Object.values(keywordCountsSel)
       .sort((a, b) => (b.positif + b.negatif) - (a.positif + a.negatif))
       .slice(0, 5);
-  }, [commentRows, sel]);
+  }, [keywordCountsSel]);
+
+  const risingPositives = useMemo(() => {
+    if (!hasPrevious) return [];
+    const rows = [];
+    for (const nom of Object.keys(keywordCountsSel)) {
+      const cur = keywordCountsSel[nom].positif;
+      const prv = keywordCountsPrev[nom]?.positif || 0;
+      if (cur > prv) rows.push({ nom, prev: prv, cur });
+    }
+    return rows.sort((a, b) => (b.cur - b.prev) - (a.cur - a.prev)).slice(0, 5);
+  }, [keywordCountsSel, keywordCountsPrev, hasPrevious]);
+
+  const risingIssues = useMemo(() => {
+    if (!hasPrevious) return [];
+    const rows = [];
+    for (const nom of Object.keys(keywordCountsSel)) {
+      const cur = keywordCountsSel[nom].negatif;
+      const prv = keywordCountsPrev[nom]?.negatif || 0;
+      if (cur > prv) rows.push({ nom, prev: prv, cur });
+    }
+    return rows.sort((a, b) => (b.cur - b.prev) - (a.cur - a.prev)).slice(0, 5);
+  }, [keywordCountsSel, keywordCountsPrev, hasPrevious]);
 
   return (
     <div className="min-h-full w-full bg-[#f7f8fa] p-6 md:p-8 overflow-x-hidden" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
@@ -567,6 +602,56 @@ function Dashboard({ clientKey, password, initialData }) {
                 <p className="text-sm text-gray-400">Aucun mot-clé détecté pour ce mois.</p>
               )}
             </div>
+
+            {(risingPositives.length > 0 || risingIssues.length > 0) && (
+              <div className="grid md:grid-cols-2 gap-6 mb-6">
+                {risingPositives.length > 0 && (
+                  <div className="bg-white rounded-xl border border-emerald-200 p-5 shadow-sm">
+                    <div className="flex items-center gap-2 mb-1">
+                      <TrendingUp size={18} className="text-emerald-500" />
+                      <h2 className="font-semibold text-gray-800">Signaux positifs</h2>
+                    </div>
+                    <p className="text-xs text-gray-400 mb-3">
+                      Sujets dont les mentions positives augmentent par rapport à {prev.label}.
+                    </p>
+                    <div>
+                      {risingPositives.map((r) => (
+                        <div key={r.nom} className="flex items-center justify-between py-2.5 border-b border-gray-100 last:border-0">
+                          <span className="font-medium text-gray-800 text-sm">{r.nom}</span>
+                          <span className="text-sm text-emerald-600 font-medium flex items-center gap-1.5">
+                            {r.prev} mention{r.prev > 1 ? "s" : ""} → {r.cur} mention{r.cur > 1 ? "s" : ""}
+                            <TrendingUp size={14} strokeWidth={2.5} />
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {risingIssues.length > 0 && (
+                  <div className="bg-white rounded-xl border border-amber-200 p-5 shadow-sm">
+                    <div className="flex items-center gap-2 mb-1">
+                      <TrendingUp size={18} className="text-amber-500" />
+                      <h2 className="font-semibold text-gray-800">Signaux à surveiller</h2>
+                    </div>
+                    <p className="text-xs text-gray-400 mb-3">
+                      Sujets dont les mentions négatives augmentent par rapport à {prev.label}.
+                    </p>
+                    <div>
+                      {risingIssues.map((r) => (
+                        <div key={r.nom} className="flex items-center justify-between py-2.5 border-b border-gray-100 last:border-0">
+                          <span className="font-medium text-gray-800 text-sm">{r.nom}</span>
+                          <span className="text-sm text-amber-600 font-medium flex items-center gap-1.5">
+                            {r.prev} mention{r.prev > 1 ? "s" : ""} → {r.cur} mention{r.cur > 1 ? "s" : ""}
+                            <TrendingUp size={14} strokeWidth={2.5} />
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {hasPrevious && (
               <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm mb-6">
