@@ -8,17 +8,34 @@ const CLIENTS = {
   batbout: {
     spreadsheetId: "10EsXW5HTPr2D_51roBCZyIFSibcBFLLHL8VBl44wUbk",
     label: "Batbout++",
-    password: "moez2026!",
+    password: "Moez2026!",
   },
   lacrosta: {
     spreadsheetId: "1F1ayIWUhhu9tM1K2AggSiU2JhjEsmp8XC_Ldgw6GEVo",
     label: "La Crosta Trattoria",
-    password: "salah2026!",
+    password: "Salah2026!",
   },
 };
 
+// URL du webhook Make.com qui écrit dans Sonyk_Analytics > Visites.
+// À remplacer par la vraie URL une fois le scénario Make créé.
+const VISIT_WEBHOOK_URL = "COLLE_ICI_TON_URL_WEBHOOK_MAKE";
+
 function gvizUrl(spreadsheetId, sheetName) {
   return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
+}
+
+// Log une "vraie" consultation — jamais appelée pour les actualisations
+// automatiques toutes les 60s, ni pour le bouton "Actualiser" manuel.
+// Volontairement "fire-and-forget" : si Make ne répond pas ou est lent,
+// ça ne ralentit jamais le chargement du dashboard pour le restaurateur.
+function logVisit(clientKey) {
+  if (!VISIT_WEBHOOK_URL || VISIT_WEBHOOK_URL.startsWith("COLLE_ICI")) return;
+  fetch(VISIT_WEBHOOK_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ client: clientKey }),
+  }).catch(() => {});
 }
 
 export default async function handler(req, res) {
@@ -26,7 +43,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Méthode non autorisée" });
   }
 
-  const { client: clientKey, password } = req.body || {};
+  const { client: clientKey, password, event } = req.body || {};
   const client = CLIENTS[clientKey];
 
   if (!client) {
@@ -34,6 +51,13 @@ export default async function handler(req, res) {
   }
   if (password !== client.password) {
     return res.status(401).json({ error: "Mot de passe incorrect" });
+  }
+
+  // Une "visite" = ouverture réelle du dashboard (mot de passe tapé, ou
+  // reconnexion automatique via l'appareil mémorisé). Les actualisations
+  // périodiques (event = "refresh") ne comptent jamais.
+  if (event === "open") {
+    logVisit(clientKey);
   }
 
   try {
