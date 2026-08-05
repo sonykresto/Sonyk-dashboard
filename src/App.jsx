@@ -4,7 +4,7 @@ import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
-import { TrendingUp, TrendingDown, Minus, RefreshCw, AlertTriangle, MessageSquareWarning, Lock, Tag } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus, RefreshCw, AlertTriangle, MessageSquareWarning, Lock, Tag, ThumbsUp } from "lucide-react";
 
 const RESTAURANT_LABELS = {
   batbout: "Batbout++",
@@ -237,7 +237,7 @@ function PasswordGate({ clientKey, onUnlock }) {
       const res = await fetch("/api/dashboard-data", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ client: clientKey, password: value }),
+        body: JSON.stringify({ client: clientKey, password: value, event: "open" }),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -344,7 +344,7 @@ function Dashboard({ clientKey, password, initialData }) {
       const res = await fetch("/api/dashboard-data", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ client: clientKey, password }),
+        body: JSON.stringify({ client: clientKey, password, event: "refresh" }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Erreur inconnue");
@@ -383,6 +383,19 @@ function Dashboard({ clientKey, password, initialData }) {
     if (!sel || sel.year === null) return [];
     return commentRows
       .filter((r) => (r.type || "").trim().toLowerCase() === "negatif")
+      .filter((r) => {
+        const d = parseAnyDate(r.mois_cible);
+        return d && d.getFullYear() === sel.year && d.getMonth() === sel.month;
+      })
+      .filter((r) => r.resume_client && r.resume_client.trim())
+      .sort((a, b) => (parseAnyDate(b.mois_cible) || 0) - (parseAnyDate(a.mois_cible) || 0))
+      .slice(0, 8);
+  }, [commentRows, sel]);
+
+  const positiveForMonth = useMemo(() => {
+    if (!sel || sel.year === null) return [];
+    return commentRows
+      .filter((r) => (r.type || "").trim().toLowerCase() === "positif")
       .filter((r) => {
         const d = parseAnyDate(r.mois_cible);
         return d && d.getFullYear() === sel.year && d.getMonth() === sel.month;
@@ -654,28 +667,49 @@ function Dashboard({ clientKey, password, initialData }) {
               </div>
             )}
 
-            <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-              <div className="flex items-center gap-2 mb-4">
-                <MessageSquareWarning size={18} className="text-orange-500" />
-                <h2 className="font-semibold text-gray-800">Avis négatifs — {sel.label}</h2>
-              </div>
-              {negativeForMonth.length > 0 ? (
-                <div className="space-y-3">
-                  {negativeForMonth.map((r, i) => (
-                    <div key={i} className="flex items-start gap-3 py-2.5 border-b border-gray-100 last:border-0">
-                      <span className="mt-1 shrink-0 w-2 h-2 rounded-full" style={{ backgroundColor: INFO_RAPPORT_COLOR[r.info_rapport] || GRAY }} />
-                      <div>
-                        {r.info_rapport && INFO_RAPPORT_LABEL[r.info_rapport] && (
-                          <span className="text-xs font-medium text-gray-400 block mb-0.5">{INFO_RAPPORT_LABEL[r.info_rapport]}</span>
-                        )}
+            <div className="grid md:grid-cols-2 gap-6">
+              <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+                <div className="flex items-center gap-2 mb-4">
+                  <ThumbsUp size={18} className="text-emerald-500" />
+                  <h2 className="font-semibold text-gray-800">Avis positifs — {sel.label}</h2>
+                </div>
+                {positiveForMonth.length > 0 ? (
+                  <div className="space-y-3">
+                    {positiveForMonth.map((r, i) => (
+                      <div key={i} className="flex items-start gap-3 py-2.5 border-b border-gray-100 last:border-0">
+                        <span className="mt-1 shrink-0 w-2 h-2 rounded-full" style={{ backgroundColor: GREEN }} />
                         <p className="text-sm text-gray-700">{r.resume_client}</p>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-400">Aucun avis positif détaillé pour ce mois.</p>
+                )}
+              </div>
+
+              <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+                <div className="flex items-center gap-2 mb-4">
+                  <MessageSquareWarning size={18} className="text-orange-500" />
+                  <h2 className="font-semibold text-gray-800">Avis négatifs — {sel.label}</h2>
                 </div>
-              ) : (
-                <p className="text-sm text-gray-400">Aucun avis négatif détaillé pour ce mois.</p>
-              )}
+                {negativeForMonth.length > 0 ? (
+                  <div className="space-y-3">
+                    {negativeForMonth.map((r, i) => (
+                      <div key={i} className="flex items-start gap-3 py-2.5 border-b border-gray-100 last:border-0">
+                        <span className="mt-1 shrink-0 w-2 h-2 rounded-full" style={{ backgroundColor: INFO_RAPPORT_COLOR[r.info_rapport] || GRAY }} />
+                        <div>
+                          {r.info_rapport && INFO_RAPPORT_LABEL[r.info_rapport] && (
+                            <span className="text-xs font-medium text-gray-400 block mb-0.5">{INFO_RAPPORT_LABEL[r.info_rapport]}</span>
+                          )}
+                          <p className="text-sm text-gray-700">{r.resume_client}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-400">Aucun avis négatif détaillé pour ce mois.</p>
+                )}
+              </div>
             </div>
           </>
         )}
@@ -719,7 +753,7 @@ export default function SonykDashboardLive() {
         const res = await fetch("/api/dashboard-data", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ client: clientKey, password: stored }),
+          body: JSON.stringify({ client: clientKey, password: stored, event: "open" }),
         });
         const json = await res.json();
         if (res.ok) {
