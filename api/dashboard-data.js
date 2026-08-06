@@ -19,7 +19,7 @@ const CLIENTS = {
 
 // URL du webhook Make.com qui écrit dans Sonyk_Analytics > Visites.
 // À remplacer par la vraie URL une fois le scénario Make créé.
-const VISIT_WEBHOOK_URL = "COLLE_ICI_TON_URL_WEBHOOK_MAKE";
+const VISIT_WEBHOOK_URL = "https://hook.us2.make.com/susyxw82cumxekj8cx9avs9yqliwr229";
 
 function gvizUrl(spreadsheetId, sheetName) {
   return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
