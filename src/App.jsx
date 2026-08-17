@@ -319,6 +319,8 @@ function Dashboard({ clientKey, password, initialData }) {
   const [history, setHistory] = useState([]);
   const [commentRows, setCommentRows] = useState([]);
   const [selectedIdx, setSelectedIdx] = useState(0);
+  const [showAllPositive, setShowAllPositive] = useState(false);
+  const [showAllNegative, setShowAllNegative] = useState(false);
   const [lastFetched, setLastFetched] = useState(new Date());
 
   const applyData = useCallback((json) => {
@@ -388,8 +390,7 @@ function Dashboard({ clientKey, password, initialData }) {
         return d && d.getFullYear() === sel.year && d.getMonth() === sel.month;
       })
       .filter((r) => r.resume_client && r.resume_client.trim())
-      .sort((a, b) => (parseAnyDate(b.mois_cible) || 0) - (parseAnyDate(a.mois_cible) || 0))
-      .slice(0, 8);
+      .sort((a, b) => (parseAnyDate(b.mois_cible) || 0) - (parseAnyDate(a.mois_cible) || 0));
   }, [commentRows, sel]);
 
   const positiveForMonth = useMemo(() => {
@@ -401,8 +402,7 @@ function Dashboard({ clientKey, password, initialData }) {
         return d && d.getFullYear() === sel.year && d.getMonth() === sel.month;
       })
       .filter((r) => r.resume_client && r.resume_client.trim())
-      .sort((a, b) => (parseAnyDate(b.mois_cible) || 0) - (parseAnyDate(a.mois_cible) || 0))
-      .slice(0, 8);
+      .sort((a, b) => (parseAnyDate(b.mois_cible) || 0) - (parseAnyDate(a.mois_cible) || 0));
   }, [commentRows, sel]);
 
   const keywordCountsSel = useMemo(
@@ -465,7 +465,7 @@ function Dashboard({ clientKey, password, initialData }) {
                 {series.map((m, i) => (
                   <button
                     key={m.key + i}
-                    onClick={() => setSelectedIdx(i)}
+                    onClick={() => { setSelectedIdx(i); setShowAllPositive(false); setShowAllNegative(false); }}
                     className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap shrink-0 ${
                       i === selectedIdx ? "text-white" : "text-gray-500 hover:text-gray-800 hover:bg-gray-50"
                     }`}
@@ -674,14 +674,24 @@ function Dashboard({ clientKey, password, initialData }) {
                   <h2 className="font-semibold text-gray-800">Avis positifs — {sel.label}</h2>
                 </div>
                 {positiveForMonth.length > 0 ? (
-                  <div className="space-y-3">
-                    {positiveForMonth.map((r, i) => (
-                      <div key={i} className="flex items-start gap-3 py-2.5 border-b border-gray-100 last:border-0">
-                        <span className="mt-1 shrink-0 w-2 h-2 rounded-full" style={{ backgroundColor: GREEN }} />
-                        <p className="text-sm text-gray-700">{r.resume_client}</p>
-                      </div>
-                    ))}
-                  </div>
+                  <>
+                    <div className="space-y-3">
+                      {(showAllPositive ? positiveForMonth : positiveForMonth.slice(0, 8)).map((r, i) => (
+                        <div key={i} className="flex items-start gap-3 py-2.5 border-b border-gray-100 last:border-0">
+                          <span className="mt-1 shrink-0 w-2 h-2 rounded-full" style={{ backgroundColor: GREEN }} />
+                          <p className="text-sm text-gray-700">{r.resume_client}</p>
+                        </div>
+                      ))}
+                    </div>
+                    {positiveForMonth.length > 8 && (
+                      <button
+                        onClick={() => setShowAllPositive((v) => !v)}
+                        className="mt-3 text-sm font-medium text-emerald-600 hover:text-emerald-700"
+                      >
+                        {showAllPositive ? "Voir moins" : `Voir plus (${positiveForMonth.length - 8} de plus)`}
+                      </button>
+                    )}
+                  </>
                 ) : (
                   <p className="text-sm text-gray-400">Aucun avis positif détaillé pour ce mois.</p>
                 )}
@@ -693,19 +703,29 @@ function Dashboard({ clientKey, password, initialData }) {
                   <h2 className="font-semibold text-gray-800">Avis négatifs — {sel.label}</h2>
                 </div>
                 {negativeForMonth.length > 0 ? (
-                  <div className="space-y-3">
-                    {negativeForMonth.map((r, i) => (
-                      <div key={i} className="flex items-start gap-3 py-2.5 border-b border-gray-100 last:border-0">
-                        <span className="mt-1 shrink-0 w-2 h-2 rounded-full" style={{ backgroundColor: INFO_RAPPORT_COLOR[r.info_rapport] || GRAY }} />
-                        <div>
-                          {r.info_rapport && INFO_RAPPORT_LABEL[r.info_rapport] && (
-                            <span className="text-xs font-medium text-gray-400 block mb-0.5">{INFO_RAPPORT_LABEL[r.info_rapport]}</span>
-                          )}
-                          <p className="text-sm text-gray-700">{r.resume_client}</p>
+                  <>
+                    <div className="space-y-3">
+                      {(showAllNegative ? negativeForMonth : negativeForMonth.slice(0, 8)).map((r, i) => (
+                        <div key={i} className="flex items-start gap-3 py-2.5 border-b border-gray-100 last:border-0">
+                          <span className="mt-1 shrink-0 w-2 h-2 rounded-full" style={{ backgroundColor: INFO_RAPPORT_COLOR[r.info_rapport] || GRAY }} />
+                          <div>
+                            {r.info_rapport && INFO_RAPPORT_LABEL[r.info_rapport] && (
+                              <span className="text-xs font-medium text-gray-400 block mb-0.5">{INFO_RAPPORT_LABEL[r.info_rapport]}</span>
+                            )}
+                            <p className="text-sm text-gray-700">{r.resume_client}</p>
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                    {negativeForMonth.length > 8 && (
+                      <button
+                        onClick={() => setShowAllNegative((v) => !v)}
+                        className="mt-3 text-sm font-medium text-orange-600 hover:text-orange-700"
+                      >
+                        {showAllNegative ? "Voir moins" : `Voir plus (${negativeForMonth.length - 8} de plus)`}
+                      </button>
+                    )}
+                  </>
                 ) : (
                   <p className="text-sm text-gray-400">Aucun avis négatif détaillé pour ce mois.</p>
                 )}
