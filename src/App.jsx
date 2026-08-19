@@ -16,7 +16,6 @@ const BLUE = "#2E6FFF";
 const ORANGE = "#f59e0b";
 const GRAY = "#9ca3af";
 const RED = "#ef4444";
-const AMBER_LIGHT = "#fde68a"; // teinte claire pour "étoile négative", symétrique au vert clair d'"étoile positive"
 
 // ---------------------------------------------------------------------------
 // Parsing helpers (identiques à avant — seule la SOURCE des données change)
@@ -98,6 +97,8 @@ function buildMonthEntry(dateLabel, m) {
     ignorer: m.total_ignorer || 0,
     etoile_positive: m.total_etoile_positive || 0,
     etoile_negative: m.total_etoile_negative || 0,
+    positif_combine: (m.total_positif || 0) + (m.total_etoile_positive || 0),
+    negatif_combine: (m.total_negatif || 0) + (m.total_etoile_negative || 0),
     score: m.score_sonyk || 0,
     niveau: m.niveau_sonyk || "",
     fr: m.total_fr || 0,
@@ -564,10 +565,8 @@ function Dashboard({ clientKey, password, initialData }) {
                       <YAxis tick={{ fontSize: 12, fill: "#6b7280" }} axisLine={false} tickLine={false} width={32} allowDecimals={false} />
                       <Tooltip content={<CustomTooltip />} />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
-                      <Bar dataKey="positif" name="Positif" stackId="a" fill={GREEN} />
-                      <Bar dataKey="etoile_positive" name="Avis étoile positive" stackId="a" fill="#a7f3d0" />
-                      <Bar dataKey="negatif" name="Négatif" stackId="a" fill={ORANGE} />
-                      <Bar dataKey="etoile_negative" name="Avis étoile négative" stackId="a" fill={AMBER_LIGHT} />
+                      <Bar dataKey="positif_combine" name="Positif" stackId="a" fill={GREEN} />
+                      <Bar dataKey="negatif_combine" name="Négatif" stackId="a" fill={ORANGE} />
                       <Bar dataKey="ignorer" name="Ignoré" stackId="a" fill="#d1d5db" radius={[3, 3, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
