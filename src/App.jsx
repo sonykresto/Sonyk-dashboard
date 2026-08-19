@@ -328,6 +328,7 @@ function Dashboard({ clientKey, password, initialData }) {
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [showAllPositive, setShowAllPositive] = useState(false);
   const [showAllNegative, setShowAllNegative] = useState(false);
+  const [showMoreKpi, setShowMoreKpi] = useState(false);
   const [lastFetched, setLastFetched] = useState(new Date());
 
   const applyData = useCallback((json) => {
@@ -513,7 +514,7 @@ function Dashboard({ clientKey, password, initialData }) {
 
         {sel && (
           <>
-            <div className="grid grid-cols-2 lg:grid-cols-7 gap-4 mb-6">
+            <div className="grid grid-cols-2 lg:grid-cols-6 gap-4 mb-3">
               <KPICard label="Score Sonyk" value={`${sel.score}%`} sub={sel.niveau} accent={GREEN}
                 delta={hasPrevious && <Delta current={sel.score} previous={prev.score} suffix=" pts" />} />
               <KPICard label="Total avis" value={sel.total} accent={BLUE}
@@ -526,9 +527,22 @@ function Dashboard({ clientKey, password, initialData }) {
                 delta={hasPrevious && <Delta current={sel.etoile_positive} previous={prev.etoile_positive} />} />
               <KPICard label="Étoile négative" value={sel.etoile_negative} accent={ORANGE}
                 delta={hasPrevious && <Delta current={sel.etoile_negative} previous={prev.etoile_negative} invert />} />
-              <KPICard label="Ignorés" value={sel.ignorer} accent={GRAY}
-                delta={hasPrevious && <Delta current={sel.ignorer} previous={prev.ignorer} invert />} />
             </div>
+
+            <button
+              onClick={() => setShowMoreKpi((v) => !v)}
+              className="text-sm font-medium text-gray-500 hover:text-gray-800 mb-3"
+            >
+              {showMoreKpi ? "Voir moins ▲" : "Voir plus ▾"}
+            </button>
+
+            {showMoreKpi && (
+              <div className="grid grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
+                <KPICard label="Ignorés" value={sel.ignorer} accent={GRAY}
+                  delta={hasPrevious && <Delta current={sel.ignorer} previous={prev.ignorer} invert />} />
+              </div>
+            )}
+            {!showMoreKpi && <div className="mb-3" />}
 
             {series.length > 1 && (
               <div className="bg-white rounded-xl border border-gray-200 p-5 mb-6 shadow-sm">
