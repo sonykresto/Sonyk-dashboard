@@ -16,6 +16,7 @@ const BLUE = "#2E6FFF";
 const ORANGE = "#f59e0b";
 const GRAY = "#9ca3af";
 const RED = "#ef4444";
+const AMBER_LIGHT = "#fde68a"; // teinte claire pour "étoile négative", symétrique au vert clair d'"étoile positive"
 
 // ---------------------------------------------------------------------------
 // Parsing helpers (identiques à avant — seule la SOURCE des données change)
@@ -80,7 +81,11 @@ function parseAnyDate(value) {
 
 function buildMonthEntry(dateLabel, m) {
   const total =
-    (m.total_positif || 0) + (m.total_negatif || 0) + (m.total_ignorer || 0) + (m.total_etoile_positive || 0);
+    (m.total_positif || 0) +
+    (m.total_negatif || 0) +
+    (m.total_ignorer || 0) +
+    (m.total_etoile_positive || 0) +
+    (m.total_etoile_negative || 0);
   const d = parseAnyDate(dateLabel);
   return {
     key: dateLabel,
@@ -92,6 +97,7 @@ function buildMonthEntry(dateLabel, m) {
     negatif: m.total_negatif || 0,
     ignorer: m.total_ignorer || 0,
     etoile_positive: m.total_etoile_positive || 0,
+    etoile_negative: m.total_etoile_negative || 0,
     score: m.score_sonyk || 0,
     niveau: m.niveau_sonyk || "",
     fr: m.total_fr || 0,
@@ -381,6 +387,9 @@ function Dashboard({ clientKey, password, initialData }) {
     ].filter((d) => d.value > 0);
   }, [sel]);
 
+  // Les listes détaillées ci-dessous ne portent QUE sur les avis avec texte
+  // (type exactement "positif" ou "negatif") — etoile_positive et
+  // etoile_negative restent des compteurs uniquement, jamais listés ici.
   const negativeForMonth = useMemo(() => {
     if (!sel || sel.year === null) return [];
     return commentRows
@@ -503,7 +512,7 @@ function Dashboard({ clientKey, password, initialData }) {
 
         {sel && (
           <>
-            <div className="grid grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
+            <div className="grid grid-cols-2 lg:grid-cols-7 gap-4 mb-6">
               <KPICard label="Score Sonyk" value={`${sel.score}%`} sub={sel.niveau} accent={GREEN}
                 delta={hasPrevious && <Delta current={sel.score} previous={prev.score} suffix=" pts" />} />
               <KPICard label="Total avis" value={sel.total} accent={BLUE}
@@ -514,6 +523,8 @@ function Dashboard({ clientKey, password, initialData }) {
                 delta={hasPrevious && <Delta current={sel.negatif} previous={prev.negatif} invert />} />
               <KPICard label="Étoile positive" value={sel.etoile_positive} accent={GREEN}
                 delta={hasPrevious && <Delta current={sel.etoile_positive} previous={prev.etoile_positive} />} />
+              <KPICard label="Étoile négative" value={sel.etoile_negative} accent={ORANGE}
+                delta={hasPrevious && <Delta current={sel.etoile_negative} previous={prev.etoile_negative} invert />} />
               <KPICard label="Ignorés" value={sel.ignorer} accent={GRAY}
                 delta={hasPrevious && <Delta current={sel.ignorer} previous={prev.ignorer} invert />} />
             </div>
@@ -556,6 +567,7 @@ function Dashboard({ clientKey, password, initialData }) {
                       <Bar dataKey="positif" name="Positif" stackId="a" fill={GREEN} />
                       <Bar dataKey="etoile_positive" name="Avis étoile positive" stackId="a" fill="#a7f3d0" />
                       <Bar dataKey="negatif" name="Négatif" stackId="a" fill={ORANGE} />
+                      <Bar dataKey="etoile_negative" name="Avis étoile négative" stackId="a" fill={AMBER_LIGHT} />
                       <Bar dataKey="ignorer" name="Ignoré" stackId="a" fill="#d1d5db" radius={[3, 3, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
@@ -653,6 +665,7 @@ function Dashboard({ clientKey, password, initialData }) {
                     { label: "Avis positifs", cur: sel.positif, prv: prev.positif },
                     { label: "Avis négatifs", cur: sel.negatif, prv: prev.negatif, invert: true },
                     { label: "Avis étoile positive", cur: sel.etoile_positive, prv: prev.etoile_positive },
+                    { label: "Avis étoile négative", cur: sel.etoile_negative, prv: prev.etoile_negative, invert: true },
                   ].map((row) => (
                     <div key={row.label} className="flex items-center justify-between text-sm">
                       <span className="text-gray-600">{row.label}</span>
