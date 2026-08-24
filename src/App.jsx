@@ -4,7 +4,7 @@ import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
-import { TrendingUp, TrendingDown, Minus, RefreshCw, AlertTriangle, MessageSquareWarning, Lock, Tag, ThumbsUp } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus, RefreshCw, AlertTriangle, MessageSquareWarning, Lock, Tag, ThumbsUp, Info } from "lucide-react";
 
 const RESTAURANT_LABELS = {
   batbout: "Batbout++",
@@ -208,21 +208,44 @@ function GoogleBadge() {
   );
 }
 
-function KeywordRow({ k }) {
-  const partage = k.positif === k.negatif;
-  const dot = partage ? GRAY : k.positif > k.negatif ? GREEN : ORANGE;
-  const label = partage
-    ? `${k.positif} positifs – ${k.negatif} négatifs`
-    : k.negatif === 0 ? "Que des retours positifs"
-    : k.positif === 0 ? "Que des retours négatifs"
-    : k.positif > k.negatif ? "Majoritairement positif" : "Majoritairement négatif";
+// ---------------------------------------------------------------------------
+// Sujets fusionnés — remplace les 3 anciens blocs (Sujets les plus mentionnés /
+// Signaux positifs / Signaux à surveiller) par une seule table par sujet,
+// avec statut du mois courant + comparaison "avant → après" vs mois précédent.
+// ---------------------------------------------------------------------------
+function SujetRow({ s, prevLabel }) {
+  const partage = s.positif === s.negatif && s.positif > 0;
+  const dot = s.positif + s.negatif === 0
+    ? GRAY
+    : partage ? GRAY : s.positif > s.negatif ? GREEN : ORANGE;
+  const label =
+    s.positif + s.negatif === 0
+      ? "Pas encore assez de mentions"
+      : partage
+      ? `${s.positif} positifs – ${s.negatif} négatifs`
+      : s.negatif === 0 ? "Que des retours positifs"
+      : s.positif === 0 ? "Que des retours négatifs"
+      : s.positif > s.negatif ? "Majoritairement positif" : "Majoritairement négatif";
+
   return (
-    <div className="flex items-center justify-between py-2.5 border-b border-gray-100 last:border-0">
-      <div className="flex items-center gap-2.5">
-        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: dot }} />
-        <span className="font-medium text-gray-800 text-sm">{k.nom}</span>
+    <div className="py-2.5 border-b border-gray-100 last:border-0 flex items-center justify-between gap-3">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: dot }} />
+          <span className="font-medium text-gray-800 text-sm truncate">{s.nom}</span>
+        </div>
+        <span className="text-xs text-gray-400 ml-4">{label}</span>
       </div>
-      <span className="text-xs text-gray-500">{label}</span>
+      <div className="flex flex-col items-end gap-0.5 shrink-0">
+        <span className="text-xs tabular-nums flex items-center gap-1" style={{ color: s.positif > s.posAvant ? GREEN : "#9ca3af" }}>
+          {s.posAvant}→{s.positif}
+          {s.positif > s.posAvant && <TrendingUp size={12} strokeWidth={2.5} />}
+        </span>
+        <span className="text-xs tabular-nums flex items-center gap-1" style={{ color: s.negatif > s.negAvant ? ORANGE : "#9ca3af" }}>
+          {s.negAvant}→{s.negatif}
+          {s.negatif > s.negAvant && <TrendingUp size={12} strokeWidth={2.5} />}
+        </span>
+      </div>
     </div>
   );
 }
@@ -329,6 +352,7 @@ function Dashboard({ clientKey, password, initialData }) {
   const [showAllPositive, setShowAllPositive] = useState(false);
   const [showAllNegative, setShowAllNegative] = useState(false);
   const [showMoreKpi, setShowMoreKpi] = useState(false);
+  const [showSujetsInfo, setShowSujetsInfo] = useState(false);
   const [lastFetched, setLastFetched] = useState(new Date());
 
   const applyData = useCallback((json) => {
@@ -425,33 +449,25 @@ function Dashboard({ clientKey, password, initialData }) {
     [commentRows, prev, hasPrevious]
   );
 
-  const keywordsForMonth = useMemo(() => {
-    return Object.values(keywordCountsSel)
+  // Fusion : union des mots-clés du mois courant (on n'a pas besoin d'ajouter
+  // ceux du mois précédent seul — un sujet qui n'a plus aucune mention ce
+  // mois-ci n'a pas de statut à afficher pour "ce mois", donc il sort de la liste).
+  const sujetsFusionnes = useMemo(() => {
+    return Object.keys(keywordCountsSel)
+      .map((nom) => {
+        const cur = keywordCountsSel[nom];
+        const prv = keywordCountsPrev[nom] || { positif: 0, negatif: 0 };
+        return {
+          nom,
+          positif: cur.positif,
+          negatif: cur.negatif,
+          posAvant: prv.positif,
+          negAvant: prv.negatif,
+        };
+      })
       .sort((a, b) => (b.positif + b.negatif) - (a.positif + a.negatif))
-      .slice(0, 5);
-  }, [keywordCountsSel]);
-
-  const risingPositives = useMemo(() => {
-    if (!hasPrevious) return [];
-    const rows = [];
-    for (const nom of Object.keys(keywordCountsSel)) {
-      const cur = keywordCountsSel[nom].positif;
-      const prv = keywordCountsPrev[nom]?.positif || 0;
-      if (cur > prv) rows.push({ nom, prev: prv, cur });
-    }
-    return rows.sort((a, b) => (b.cur - b.prev) - (a.cur - a.prev)).slice(0, 5);
-  }, [keywordCountsSel, keywordCountsPrev, hasPrevious]);
-
-  const risingIssues = useMemo(() => {
-    if (!hasPrevious) return [];
-    const rows = [];
-    for (const nom of Object.keys(keywordCountsSel)) {
-      const cur = keywordCountsSel[nom].negatif;
-      const prv = keywordCountsPrev[nom]?.negatif || 0;
-      if (cur > prv) rows.push({ nom, prev: prv, cur });
-    }
-    return rows.sort((a, b) => (b.cur - b.prev) - (a.cur - a.prev)).slice(0, 5);
-  }, [keywordCountsSel, keywordCountsPrev, hasPrevious]);
+      .slice(0, 8);
+  }, [keywordCountsSel, keywordCountsPrev]);
 
   return (
     <div className="min-h-full w-full bg-[#f7f8fa] p-6 md:p-8 overflow-x-hidden" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
@@ -606,67 +622,47 @@ function Dashboard({ clientKey, password, initialData }) {
             </div>
 
             <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm mb-6">
-              <div className="flex items-center gap-2 mb-1">
-                <Tag size={18} className="text-blue-500" />
-                <h2 className="font-semibold text-gray-800">Sujets les plus mentionnés — {sel.label}</h2>
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-2">
+                  <Tag size={18} className="text-blue-500" />
+                  <h2 className="font-semibold text-gray-800">Sujets — {sel.label}</h2>
+                </div>
+                <button
+                  onClick={() => setShowSujetsInfo((v) => !v)}
+                  className="text-gray-300 hover:text-gray-500 transition-colors"
+                  aria-label="Comment lire ce tableau"
+                  type="button"
+                >
+                  <Info size={16} />
+                </button>
               </div>
               <p className="text-xs text-gray-400 mb-3">Détectés automatiquement dans les avis Google de ce mois.</p>
-              {keywordsForMonth.length > 0 ? (
-                <div>{keywordsForMonth.map((k) => <KeywordRow key={k.nom} k={k} />)}</div>
+
+              {showSujetsInfo && (
+                <div className="mb-3 rounded-lg bg-gray-50 border border-gray-100 p-3 text-xs text-gray-500 leading-relaxed">
+                  Le point de couleur montre l'état général du sujet ce mois-ci. Les chiffres à droite montrent
+                  {hasPrevious ? ` la comparaison avec ${prev.label}` : " le compte du mois"} — un sujet peut rester
+                  globalement positif tout en ayant reçu une mention négative de plus.
+                </div>
+              )}
+
+              {sujetsFusionnes.length > 0 ? (
+                <div>{sujetsFusionnes.map((s) => <SujetRow key={s.nom} s={s} prevLabel={prev?.label} />)}</div>
               ) : (
                 <p className="text-sm text-gray-400">Aucun mot-clé détecté pour ce mois.</p>
               )}
+
+              {sujetsFusionnes.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-4 text-xs text-gray-400">
+                  <span className="flex items-center gap-1">
+                    <TrendingUp size={12} style={{ color: GREEN }} /> mentions positives en hausse
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <TrendingUp size={12} style={{ color: ORANGE }} /> mentions négatives en hausse
+                  </span>
+                </div>
+              )}
             </div>
-
-            {(risingPositives.length > 0 || risingIssues.length > 0) && (
-              <div className="grid md:grid-cols-2 gap-6 mb-6">
-                {risingPositives.length > 0 && (
-                  <div className="bg-white rounded-xl border border-emerald-200 p-5 shadow-sm">
-                    <div className="flex items-center gap-2 mb-1">
-                      <TrendingUp size={18} className="text-emerald-500" />
-                      <h2 className="font-semibold text-gray-800">Signaux positifs</h2>
-                    </div>
-                    <p className="text-xs text-gray-400 mb-3">
-                      Sujets dont les mentions positives augmentent par rapport à {prev.label}.
-                    </p>
-                    <div>
-                      {risingPositives.map((r) => (
-                        <div key={r.nom} className="flex items-center justify-between py-2.5 border-b border-gray-100 last:border-0">
-                          <span className="font-medium text-gray-800 text-sm">{r.nom}</span>
-                          <span className="text-sm text-emerald-600 font-medium flex items-center gap-1.5">
-                            {r.prev} mention{r.prev > 1 ? "s" : ""} → {r.cur} mention{r.cur > 1 ? "s" : ""}
-                            <TrendingUp size={14} strokeWidth={2.5} />
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {risingIssues.length > 0 && (
-                  <div className="bg-white rounded-xl border border-amber-200 p-5 shadow-sm">
-                    <div className="flex items-center gap-2 mb-1">
-                      <TrendingUp size={18} className="text-amber-500" />
-                      <h2 className="font-semibold text-gray-800">Signaux à surveiller</h2>
-                    </div>
-                    <p className="text-xs text-gray-400 mb-3">
-                      Sujets dont les mentions négatives augmentent par rapport à {prev.label}.
-                    </p>
-                    <div>
-                      {risingIssues.map((r) => (
-                        <div key={r.nom} className="flex items-center justify-between py-2.5 border-b border-gray-100 last:border-0">
-                          <span className="font-medium text-gray-800 text-sm">{r.nom}</span>
-                          <span className="text-sm text-amber-600 font-medium flex items-center gap-1.5">
-                            {r.prev} mention{r.prev > 1 ? "s" : ""} → {r.cur} mention{r.cur > 1 ? "s" : ""}
-                            <TrendingUp size={14} strokeWidth={2.5} />
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
 
             {hasPrevious && (
               <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm mb-6">
