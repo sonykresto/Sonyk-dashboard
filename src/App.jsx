@@ -352,7 +352,7 @@ function Dashboard({ clientKey, password, initialData }) {
   const [showAllPositive, setShowAllPositive] = useState(false);
   const [showAllNegative, setShowAllNegative] = useState(false);
   const [showMoreKpi, setShowMoreKpi] = useState(false);
-  const [showSujetsInfo, setShowSujetsInfo] = useState(false);
+  const [showSujetsInfo, setShowSujetsInfo] = useState(true);
   const [lastFetched, setLastFetched] = useState(new Date());
 
   const applyData = useCallback((json) => {
@@ -639,10 +639,23 @@ function Dashboard({ clientKey, password, initialData }) {
               <p className="text-xs text-gray-400 mb-3">Détectés automatiquement dans les avis Google de ce mois.</p>
 
               {showSujetsInfo && (
-                <div className="mb-3 rounded-lg bg-gray-50 border border-gray-100 p-3 text-xs text-gray-500 leading-relaxed">
-                  Le point de couleur montre l'état général du sujet ce mois-ci. Les chiffres à droite montrent
-                  {hasPrevious ? ` la comparaison avec ${prev.label}` : " le compte du mois"} — un sujet peut rester
-                  globalement positif tout en ayant reçu une mention négative de plus.
+                <div className="mb-3 rounded-lg bg-gray-50 border border-gray-100 p-3 text-xs text-gray-500 leading-relaxed space-y-1.5">
+                  <p>Le point de couleur montre le ton général du sujet ce mois-ci (vert = plutôt positif, orange = plutôt négatif, gris = partagé).</p>
+                  {hasPrevious ? (
+                    <p>
+                      À droite, deux lignes par sujet : la <span className="font-medium" style={{ color: GREEN }}>ligne verte</span> compte les mentions positives
+                      ({prev.label} → {sel.label}), la <span className="font-medium" style={{ color: ORANGE }}>ligne orange</span> compte les mentions négatives.
+                      {sujetsFusionnes[0] && (
+                        <>
+                          {" "}Ex. {sujetsFusionnes[0].nom} : {sujetsFusionnes[0].posAvant}→{sujetsFusionnes[0].positif} avis positifs
+                          {sujetsFusionnes[0].positif > sujetsFusionnes[0].posAvant ? " (en hausse)" : ""} et {sujetsFusionnes[0].negAvant}→{sujetsFusionnes[0].negatif} avis négatifs
+                          {sujetsFusionnes[0].negatif > sujetsFusionnes[0].negAvant ? " (aussi en hausse)" : ""} — les deux peuvent bouger en même temps, dans des sens différents.
+                        </>
+                      )}
+                    </p>
+                  ) : (
+                    <p>À droite, le nombre de mentions positives puis négatives pour ce mois. La comparaison avec le mois précédent apparaîtra dès qu'un deuxième mois sera disponible.</p>
+                  )}
                 </div>
               )}
 
