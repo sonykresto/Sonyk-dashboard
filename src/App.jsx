@@ -354,6 +354,7 @@ function Dashboard({ clientKey, password, initialData }) {
   const [showMoreKpi, setShowMoreKpi] = useState(false);
   const [showSujetsInfo, setShowSujetsInfo] = useState(true);
   const [lastFetched, setLastFetched] = useState(new Date());
+  const [totalDepuisDebut, setTotalDepuisDebut] = useState(0);
 
   const applyData = useCallback((json) => {
     const curObj = parseVerticalSheet(json.moisCourant);
@@ -369,6 +370,7 @@ function Dashboard({ clientKey, password, initialData }) {
     setCommentRows(rawComments);
     setSelectedIdx(combined.length - 1);
     setLastFetched(new Date());
+    setTotalDepuisDebut(curObj.avis_total_depuis_debut || 0);
   }, []);
 
   const load = useCallback(async () => {
@@ -483,6 +485,9 @@ function Dashboard({ clientKey, password, initialData }) {
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               <h1 className="text-2xl font-bold text-gray-900">{restaurantLabel}</h1>
               <GoogleBadge />
+              <span className="text-xs text-gray-400">
+                · {totalDepuisDebut} avis répondus depuis le début
+              </span>
             </div>
           </div>
 
